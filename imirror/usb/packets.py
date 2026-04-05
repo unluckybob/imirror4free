@@ -112,13 +112,21 @@ class AudioSample:
 
 # ─── Packet reading ─────────────────────────────────────────────────
 
+# Valid top-level magic → PacketType mapping
+_MAGIC_TO_TYPE = {
+    Magic.SYNC: PacketType.SYNC,
+    Magic.ASYN: PacketType.ASYN,
+    Magic.RPLY: PacketType.RPLY,
+}
+
+
 def read_packet(data: bytes) -> Optional[Packet]:
     """Parse a raw packet from bytes.
 
     Packet structure:
         [4 bytes: length][4 bytes: magic][8 bytes: clock_ref][4 bytes: subtype][payload...]
 
-    Returns None if data is incomplete.
+    Returns None if data is incomplete or has unrecognized magic bytes.
     """
     if len(data) < 4:
         return None
@@ -147,11 +155,10 @@ def read_packet(data: bytes) -> Optional[Packet]:
     subtype = data[16:20]
     payload = data[20:length]
 
-    ptype = {
-        Magic.SYNC: PacketType.SYNC,
-        Magic.ASYN: PacketType.ASYN,
-        Magic.RPLY: PacketType.RPLY,
-    }.get(magic, PacketType.SYNC)
+    ptype = _MAGIC_TO_TYPE.get(magic)
+    if ptype is None:
+        # Unrecognized magic — don't silently misroute as SYNC
+        return None
 
     return Packet(
         length=length,

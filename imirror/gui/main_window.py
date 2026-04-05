@@ -11,6 +11,7 @@ Features:
 - FPS overlay (F3)
 - Fullscreen mode (F11)
 - Clean status bar with device info
+- Automatic error recovery with user feedback
 """
 
 import logging
@@ -19,6 +20,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QStackedWidget, QStatusBar, QApplication,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeyEvent, QAction
@@ -39,10 +41,11 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     """Main application window for IMIRROR4FREE."""
 
-    # Signal to update UI from background threads
+    # Signals to update UI from background threads
     _device_connected_signal = pyqtSignal(object)
     _device_disconnected_signal = pyqtSignal(str)
     _frame_ready_signal = pyqtSignal(object)
+    _capture_stopped_signal = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -147,15 +150,16 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(title)
 
-        # Subtitle
-        subtitle = QLabel("Connect your iPhone via USB cable")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("""
+        # Subtitle — this label is updated to show errors too
+        self._waiting_subtitle = QLabel("Connect your iPhone via USB cable")
+        self._waiting_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._waiting_subtitle.setObjectName("waitingSubtitle")
+        self._waiting_subtitle.setStyleSheet("""
             font-size: 14px;
             color: #888888;
             background: transparent;
         """)
-        layout.addWidget(subtitle)
+        layout.addWidget(self._waiting_subtitle)
 
         # Instructions
         instructions = QLabel(
@@ -191,6 +195,7 @@ class MainWindow(QMainWindow):
         self._device_connected_signal.connect(self._handle_device_connected)
         self._device_disconnected_signal.connect(self._handle_device_disconnected)
         self._frame_ready_signal.connect(self._handle_frame_ready)
+        self._capture_stopped_signal.connect(self._handle_capture_stopped)
 
     def _apply_theme(self) -> None:
         """Apply the dark theme stylesheet."""
@@ -211,6 +216,15 @@ class MainWindow(QMainWindow):
         """Handle device connection on the UI thread."""
         logger.info("UI: Device connected — %s", device.display_name)
         self._current_device = device
+
+        # Reset any previous error state on the waiting screen
+        self._waiting_subtitle.setText("Connect your iPhone via USB cable")
+        self._waiting_subtitle.setStyleSheet("""
+            font-size: 14px;
+            color: #888888;
+            background: transparent;
+        """)
+
         self._start_mirroring(device)
 
     @pyqtSlot(str)
@@ -221,6 +235,29 @@ class MainWindow(QMainWindow):
         self._current_device = None
         self._stack.setCurrentIndex(0)
         self._status_label.setText("Waiting for iPhone...")
+        self._waiting_subtitle.setText("Connect your iPhone via USB cable")
+        self._waiting_subtitle.setStyleSheet("""
+            font-size: 14px;
+            color: #888888;
+            background: transparent;
+        """)
+
+    @pyqtSlot(str)
+    def _handle_capture_stopped(self, reason: str) -> None:
+        """Handle unexpected capture stop — show error and return to waiting screen."""
+        logger.warning("Capture stopped unexpectedly: %s", reason)
+        self._stop_mirroring()
+        self._stack.setCurrentIndex(0)
+
+        # Show the error on the waiting screen
+        self._waiting_subtitle.setText(f"⚠️ {reason}")
+        self._waiting_subtitle.setStyleSheet("""
+            font-size: 14px;
+            color: #FF6B6B;
+            background: transparent;
+        """)
+        self._scanning_label.setText("🔍 Scanning for devices... (will auto-reconnect)")
+        self._status_label.setText("⚠️ Capture stopped — waiting for reconnect...")
 
     # ─── Mirroring control ──────────────────────────────────────────
 
@@ -231,6 +268,13 @@ class MainWindow(QMainWindow):
 
         if self._capture is None:
             logger.error("No capture backend available!")
+            self._status_label.setText("❌ No capture backend available")
+            self._waiting_subtitle.setText("⚠️ No capture backend available — check installation")
+            self._waiting_subtitle.setStyleSheet("""
+                font-size: 14px;
+                color: #FF6B6B;
+                background: transparent;
+            """)
             return
 
         logger.info("Using capture backend: %s", self._capture.name)
@@ -238,10 +282,20 @@ class MainWindow(QMainWindow):
         # Register frame callback
         self._capture.on_frame(self._on_frame_captured)
 
+        # Register capture-stopped callback for error recovery
+        self._capture._on_capture_stopped = lambda reason: self._capture_stopped_signal.emit(reason)
+
         # Start capture
         success = self._capture.start(device.udid)
         if not success:
             logger.error("Failed to start capture backend")
+            self._status_label.setText("❌ Failed to start mirroring")
+            self._waiting_subtitle.setText("⚠️ Failed to connect — try unplugging and replugging")
+            self._waiting_subtitle.setStyleSheet("""
+                font-size: 14px;
+                color: #FF6B6B;
+                background: transparent;
+            """)
             return
 
         self._is_mirroring = True
@@ -348,5 +402,6 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event) -> None:
         """Handle window resize — update overlay position."""
         super().resizeEvent(event)
-        if hasattr(self, '_fps_overlay'):
-            self._fps_overlay.resize(self.width(), self.height())
+        if hasattr(self, '_fps_overlay') and hasattr(self, '_renderer'):
+            # Resize overlay to match the renderer widget, not the whole window
+            self._fps_overlay.resize(self._renderer.width(), self._renderer.height())

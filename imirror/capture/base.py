@@ -1,78 +1,75 @@
 """
 Abstract base class for capture backends.
 
-All capture backends must implement this interface. The main app
-creates the appropriate backend based on config and swaps between
-them transparently.
+All capture backends (screenshot, Valeria stream, etc.) inherit from
+this class and implement the same interface so the GUI layer can
+swap backends transparently.
 """
 
-from abc import ABC, abstractmethod
+import abc
+import logging
+import time
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Callable, Optional
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class CapturedFrame:
-    """A captured frame ready for rendering."""
-    pixels: np.ndarray          # RGB pixel data (H, W, 3) uint8
+    """A single captured frame from the iPhone."""
+    pixels: np.ndarray      # Shape: (H, W, 3), dtype: uint8, RGB
     width: int
     height: int
-    timestamp_ns: int           # Capture timestamp
+    timestamp: float        # time.monotonic() of capture
     frame_number: int
 
-    @property
-    def aspect_ratio(self) -> float:
-        if self.height == 0:
-            return 1.0
-        return self.width / self.height
 
-
-class CaptureBackend(ABC):
-    """Abstract capture backend interface."""
+class CaptureBackend(abc.ABC):
+    """Abstract base class for capture backends."""
 
     def __init__(self):
+        self._running: bool = False
         self._on_frame: Optional[Callable[[CapturedFrame], None]] = None
-        self._running = False
-        self.frame_count = 0
+        self._on_capture_stopped: Optional[Callable[[str], None]] = None
+        self.frame_count: int = 0
         self.fps: float = 0.0
 
-    def on_frame(self, callback: Callable[[CapturedFrame], None]) -> None:
-        """Register callback for new frames."""
-        self._on_frame = callback
-
-    @abstractmethod
-    def start(self, device_udid: str) -> bool:
-        """Start capturing from the specified device.
-
-        Returns True if capture started successfully.
-        """
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        """Human-readable backend name."""
         ...
 
-    @abstractmethod
+    @property
+    @abc.abstractmethod
+    def max_fps(self) -> int:
+        """Theoretical maximum FPS for this backend."""
+        ...
+
+    @abc.abstractmethod
+    def is_available(self) -> bool:
+        """Check if this backend can run on the current system."""
+        ...
+
+    @abc.abstractmethod
+    def start(self, device_udid: str) -> bool:
+        """Start capturing from the given device. Returns success."""
+        ...
+
+    @abc.abstractmethod
     def stop(self) -> None:
         """Stop capturing."""
         ...
 
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Check if this backend is available on the current system."""
-        ...
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Human-readable name of this backend."""
-        ...
-
-    @property
-    @abstractmethod
-    def max_fps(self) -> int:
-        """Maximum FPS this backend can achieve."""
-        ...
+    def on_frame(self, callback: Callable[[CapturedFrame], None]) -> None:
+        """Register a callback for new frames."""
+        self._on_frame = callback
 
     def _emit_frame(self, frame: CapturedFrame) -> None:
-        """Emit a captured frame to the registered callback."""
+        """Send a frame to the registered callback."""
         self.frame_count += 1
         if self._on_frame:
             self._on_frame(frame)

@@ -11,6 +11,7 @@ resolution, no special driver setup required.
 """
 
 import asyncio
+import collections
 import io
 import logging
 import threading
@@ -48,12 +49,16 @@ class ScreenshotCapture(CaptureBackend):
 
     Takes rapid screenshots via pymobiledevice3 and converts them
     to numpy arrays for the OpenGL renderer. Simple and reliable.
+
+    The ScreenshotService connection is created once in start() and
+    reused for all frames to avoid per-frame handshake overhead.
     """
 
     def __init__(self):
         super().__init__()
         self._thread: Optional[threading.Thread] = None
         self._lockdown: Optional[LockdownClient] = None
+        self._screenshot_service: Optional[ScreenshotService] = None
         self._fps_counter = _FPSCounter()
 
     @property
@@ -85,6 +90,16 @@ class ScreenshotCapture(CaptureBackend):
             logger.error("Failed to connect to device %s: %s", device_udid[:8], e, exc_info=True)
             return False
 
+        # Create the screenshot service ONCE and reuse it for all frames.
+        # This avoids the massive overhead of creating a new DVT connection
+        # for every single screenshot (~50-100ms saved per frame).
+        try:
+            self._screenshot_service = ScreenshotService(lockdown=self._lockdown)
+            logger.info("Screenshot service created (reusable connection)")
+        except Exception as e:
+            logger.error("Failed to create screenshot service: %s", e, exc_info=True)
+            return False
+
         self._running = True
         self._thread = threading.Thread(
             target=self._capture_loop,
@@ -101,6 +116,7 @@ class ScreenshotCapture(CaptureBackend):
         if self._thread:
             self._thread.join(timeout=3.0)
             self._thread = None
+        self._screenshot_service = None
         logger.info("Screenshot capture stopped (%d frames captured)", self.frame_count)
 
     def _capture_loop(self) -> None:
@@ -124,14 +140,21 @@ class ScreenshotCapture(CaptureBackend):
                 consecutive_errors += 1
                 logger.warning("Screenshot error (%d/%d): %s",
                              consecutive_errors, max_errors, e)
-                if consecutive_errors >= max_errors:
-                    logger.error("Too many consecutive errors, stopping capture")
-                    self._running = False
-                    break
-                time.sleep(0.5)
-                continue
 
-            # Sleep to maintain target FPS
+                # Try to recreate the service on error (connection may have
+                # dropped due to cable wiggle, device sleep, etc.)
+                if consecutive_errors >= 3:
+                    self._recreate_service()
+
+                if consecutive_errors >= max_errors:
+                    logger.error("Too many consecutive errors — stopping capture")
+                    self._running = False
+                    # Emit stop signal so UI can show error
+                    if self._on_capture_stopped:
+                        self._on_capture_stopped("Too many capture errors — device may have disconnected")
+                    break
+
+            # Frame rate limiting
             elapsed = time.monotonic() - loop_start
             sleep_time = target_interval - elapsed
             if sleep_time > 0:
@@ -139,60 +162,53 @@ class ScreenshotCapture(CaptureBackend):
 
     def _take_screenshot(self) -> Optional[CapturedFrame]:
         """Take a single screenshot and convert to CapturedFrame."""
-        if not self._lockdown:
+        if self._screenshot_service is None:
             return None
 
+        # Reuse the persistent service connection
+        png_data = self._screenshot_service.take_screenshot()
+
+        if not png_data:
+            return None
+
+        # Decode PNG to numpy array
+        img = Image.open(io.BytesIO(png_data))
+        img = img.convert("RGB")
+        pixels = np.array(img, dtype=np.uint8)
+
+        return CapturedFrame(
+            pixels=pixels,
+            width=img.width,
+            height=img.height,
+            timestamp=time.monotonic(),
+            frame_number=self.frame_count,
+        )
+
+    def _recreate_service(self) -> None:
+        """Attempt to recreate the screenshot service after errors."""
         try:
-            # Take screenshot via DVT service
-            screenshot_service = ScreenshotService(lockdown=self._lockdown)
-            png_data = screenshot_service.take_screenshot()
-
-            # Decode PNG to numpy array
-            image = Image.open(io.BytesIO(png_data))
-
-            # Convert to RGB if needed (screenshots may be RGBA)
-            if image.mode == "RGBA":
-                image = image.convert("RGB")
-            elif image.mode != "RGB":
-                image = image.convert("RGB")
-
-            # Convert to numpy array (H, W, 3) uint8
-            pixels = np.array(image, dtype=np.uint8)
-
-            frame = CapturedFrame(
-                pixels=pixels,
-                width=image.width,
-                height=image.height,
-                timestamp_ns=time.monotonic_ns(),
-                frame_number=self.frame_count,
-            )
-
-            if self.frame_count == 0:
-                logger.info("First frame captured: %dx%d", image.width, image.height)
-
-            return frame
-
+            self._screenshot_service = ScreenshotService(lockdown=self._lockdown)
+            logger.info("Screenshot service recreated successfully")
         except Exception as e:
-            raise RuntimeError(f"Screenshot failed: {e}") from e
+            logger.warning("Failed to recreate screenshot service: %s", e)
+            self._screenshot_service = None
 
 
 class _FPSCounter:
-    """Simple rolling FPS counter."""
+    """Efficient sliding-window FPS counter using deque."""
 
     def __init__(self, window: float = 1.0):
         self._window = window
-        self._times: list[float] = []
+        self._times: collections.deque = collections.deque()
         self.fps: float = 0.0
 
     def tick(self) -> None:
         now = time.monotonic()
         self._times.append(now)
-        # Remove old entries
+
+        # Remove timestamps outside the window (O(1) per popleft)
         cutoff = now - self._window
         while self._times and self._times[0] < cutoff:
-            self._times.pop(0)
-        # Calculate FPS
-        if len(self._times) >= 2:
-            elapsed = self._times[-1] - self._times[0]
-            if elapsed > 0:
-                self.fps = (len(self._times) - 1) / elapsed
+            self._times.popleft()
+
+        self.fps = len(self._times) / self._window
