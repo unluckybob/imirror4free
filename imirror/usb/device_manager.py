@@ -6,16 +6,20 @@ Uses Apple's usbmuxd protocol (through pymobiledevice3) to:
 - Read device info (name, model, resolution, iOS version)
 - Establish lockdown connections for DVT services
 - Monitor for connect/disconnect events
+
+IMPORTANT: pymobiledevice3's usbmux API is fully async.
+We run an asyncio event loop in a background thread to handle this.
 """
 
+import asyncio
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 
-from pymobiledevice3.usbmux import list_devices
-from pymobiledevice3.lockdown import create_using_usbmux, LockdownClient
+from pymobiledevice3.usbmux import list_devices as async_list_devices
+from pymobiledevice3.lockdown import create_using_usbmux as async_create_using_usbmux, LockdownClient
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,19 @@ IPHONE_RESOLUTIONS = {
     "iPhone17,1": (1206, 2622),     # iPhone 16 Pro
     "iPhone17,2": (1320, 2868),     # iPhone 16 Pro Max
 }
+
+
+def _run_async(coro):
+    """Run an async coroutine synchronously from a regular thread.
+    
+    Creates a new event loop for each call to avoid conflicts
+    with Qt's event loop.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 class DeviceManager:
@@ -129,19 +146,25 @@ class DeviceManager:
             try:
                 self._check_devices()
             except Exception as e:
-                logger.error("Error polling devices: %s", e)
+                logger.error("Error polling devices: %s", e, exc_info=True)
             time.sleep(self._poll_interval)
 
     def _check_devices(self) -> None:
         """Check for connected/disconnected devices."""
         try:
-            usb_devices = list_devices()
+            # pymobiledevice3's list_devices is async — run it synchronously
+            usb_devices = _run_async(async_list_devices())
+            logger.debug("Found %d USB device(s)", len(usb_devices))
         except Exception as e:
             logger.debug("Failed to list USB devices: %s", e)
             return
 
         current_udids = set()
         for dev in usb_devices:
+            # Only care about USB connections (not network)
+            if hasattr(dev, 'is_usb') and not dev.is_usb:
+                continue
+
             udid = dev.serial
             current_udids.add(udid)
 
@@ -168,7 +191,8 @@ class DeviceManager:
     def _create_device(self, udid: str) -> Optional[iPhoneDevice]:
         """Create an iPhoneDevice with full info from lockdown."""
         try:
-            lockdown = create_using_usbmux(serial=udid)
+            # pymobiledevice3's create_using_usbmux is async
+            lockdown = _run_async(async_create_using_usbmux(serial=udid))
 
             # Extract device info from lockdown values
             all_values = lockdown.all_values
@@ -190,7 +214,7 @@ class DeviceManager:
             return device
 
         except Exception as e:
-            logger.warning("Failed to create device for UDID %s: %s", udid[:8], e)
+            logger.warning("Failed to create device for UDID %s: %s", udid[:8], e, exc_info=True)
             return None
 
     def get_lockdown(self, udid: Optional[str] = None) -> Optional[LockdownClient]:
