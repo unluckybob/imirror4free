@@ -35,6 +35,11 @@ from imirror.config import config, CaptureBackendType, DecoderType, RecordingFor
 from imirror.gui.styles import DARK_THEME, WAITING_SCREEN_STYLE
 from imirror.gui.overlay import FPSOverlay
 
+try:
+    from imirror.render.gl_renderer import GLRenderer, OPENGL_AVAILABLE
+except ImportError:
+    OPENGL_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -284,12 +289,24 @@ class MainWindow(QMainWindow):
         mirror_layout = QVBoxLayout(self._mirror_page)
         mirror_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._frame_label = QLabel()
-        self._frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._frame_label.setStyleSheet("background: #000;")
-        self._frame_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        mirror_layout.addWidget(self._frame_label)
+        # Use GPU-accelerated GLRenderer when available, fall back to QLabel
+        self._gl_renderer = None
+        self._frame_label = None
+
+        if OPENGL_AVAILABLE:
+            self._gl_renderer = GLRenderer()
+            self._gl_renderer.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            mirror_layout.addWidget(self._gl_renderer)
+            logger.info("Using OpenGL GPU renderer")
+        else:
+            self._frame_label = QLabel()
+            self._frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._frame_label.setStyleSheet("background: #000;")
+            self._frame_label.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            mirror_layout.addWidget(self._frame_label)
+            logger.info("OpenGL not available — using QLabel fallback renderer")
 
         self._stack.addWidget(self._mirror_page)
 
@@ -472,7 +489,7 @@ class MainWindow(QMainWindow):
                     self._current_frame = frame.pixels
                     self.frame_ready.emit(frame.pixels)
 
-            capture.on_frame_callback = on_frame
+            capture.on_frame(on_frame)
             capture.start(udid)
 
             self.status_update.emit("Valeria stream active")
@@ -497,7 +514,7 @@ class MainWindow(QMainWindow):
                     self._current_frame = frame.pixels
                     self.frame_ready.emit(frame.pixels)
 
-            capture.on_frame_callback = on_frame
+            capture.on_frame(on_frame)
             capture.start(udid)
 
             self.status_update.emit("Screenshot capture active")
@@ -512,22 +529,21 @@ class MainWindow(QMainWindow):
         """Handle a new frame (called on UI thread via signal)."""
         try:
             h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            image = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-            pixmap = QPixmap.fromImage(image)
 
-            # Scale to fit the label while maintaining aspect ratio
-            scaled = pixmap.scaled(
-                self._frame_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._frame_label.setPixmap(scaled)
-
-            # Feed to recorder if recording
-            if self._recorder and self._recorder.is_recording:
-                # Recording gets the raw H.264 from the stream, not the decoded frame
-                pass
+            if self._gl_renderer:
+                # GPU path: zero-copy texture upload, VSync, proper aspect ratio
+                self._gl_renderer.set_frame(frame, w, h)
+            elif self._frame_label:
+                # CPU fallback: QImage → QPixmap → scaled
+                bytes_per_line = ch * w
+                image = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+                pixmap = QPixmap.fromImage(image)
+                scaled = pixmap.scaled(
+                    self._frame_label.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._frame_label.setPixmap(scaled)
 
         except Exception as e:
             logger.debug("Frame render error: %s", e)

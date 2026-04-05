@@ -104,10 +104,20 @@ class AudioPlayer:
         """Feed raw PCM audio data to the player.
 
         Args:
-            pcm_data: Raw PCM float32 audio data from Valeria EAT! packets.
+            pcm_data: Raw PCM audio data from Valeria EAT! packets.
+                      Accepts int16 (from iPhone) — automatically converts
+                      to float32 for sounddevice output.
         """
         if not self._running:
             return
+
+        # Convert int16 PCM from iPhone to float32 for sounddevice
+        try:
+            int16_array = np.frombuffer(pcm_data, dtype=np.int16)
+            float32_array = int16_array.astype(np.float32) / 32768.0
+            pcm_data = float32_array.tobytes()
+        except (ValueError, TypeError) as e:
+            logger.debug("PCM conversion failed: %s — feeding raw", e)
 
         with self._lock:
             self._buffer.extend(pcm_data)
