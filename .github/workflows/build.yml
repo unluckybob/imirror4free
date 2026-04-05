@@ -1,4 +1,4 @@
-name: 🔨 Build IMIRROR4FREE.exe
+name: Build IMIRROR4FREE
 
 on:
   push:
@@ -7,31 +7,32 @@ on:
 
 jobs:
   build-windows:
-    name: Build Windows .exe
+    name: Build Windows App
     runs-on: windows-latest
 
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python 3.12
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller>=6.0.0
 
-      - name: 🔨 Build .exe with PyInstaller
+      - name: Build with PyInstaller (onedir)
         run: python build/build_exe.py
 
-      - name: 📤 Upload IMIRROR4FREE.exe
+      - name: Upload IMIRROR4FREE
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Windows
-          path: dist/IMIRROR4FREE.exe
+          # Upload the entire onedir folder — GitHub zips it automatically
+          path: dist/IMIRROR4FREE/
           retention-days: 90
