@@ -140,7 +140,7 @@ def cmd_check_driver() -> int:
     print(f"  Driver installed: {'Yes' if status.installed else 'No'}")
     print(f"  libusb accessible: {'Yes' if status.libusb_accessible else 'No'}")
     print(f"  Ready to stream: {'Yes' if status.ready_to_stream else 'No'}")
-    if status.device_pid:
+    if status.device_pid is not None:
         print(f"  Device PID: 0x{status.device_pid:04X}")
     return 0 if status.ready_to_stream else 1
 
