@@ -1,43 +1,42 @@
 """
-PyInstaller Build Script — Package IMIRROR4FREE as a standalone .exe
-
-Usage:
-    python build/build_exe.py
-
-Output:
-    dist/IMIRROR4FREE.exe
+Build script — packages IMIRROR4FREE into a standalone Windows .exe
+Uses PyInstaller with GPU-optimized settings.
 """
 
-import PyInstaller.__main__
-import os
+import subprocess
+import sys
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IMIRROR_SRC = os.path.join(ROOT, "imirror")
+# Project root is one level up from build/
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MAIN_SCRIPT = PROJECT_ROOT / "imirror" / "main.py"
+ICON_FILE = PROJECT_ROOT / "assets" / "icon.ico"
 
-PyInstaller.__main__.run([
-    os.path.join(ROOT, "imirror", "main.py"),
-    "--name=IMIRROR4FREE",
+cmd = [
+    sys.executable, "-m", "PyInstaller",
     "--onefile",
     "--windowed",
-    # "--icon=assets/icon.ico",    # Uncomment when icon is ready
-    f"--add-data={IMIRROR_SRC};imirror",
-    "--hidden-import=pymobiledevice3",
-    "--hidden-import=pymobiledevice3.services",
-    "--hidden-import=pymobiledevice3.services.dvt",
-    "--hidden-import=pymobiledevice3.lockdown",
-    "--hidden-import=PyQt6",
-    "--hidden-import=PyQt6.QtWidgets",
-    "--hidden-import=PyQt6.QtCore",
-    "--hidden-import=PyQt6.QtGui",
-    "--hidden-import=PyQt6.QtOpenGLWidgets",
-    "--hidden-import=OpenGL",
-    "--hidden-import=OpenGL.GL",
-    "--hidden-import=av",
-    "--hidden-import=numpy",
-    "--hidden-import=PIL",
-    "--hidden-import=sounddevice",
-    f"--distpath={os.path.join(ROOT, 'dist')}",
-    f"--workpath={os.path.join(ROOT, 'build', 'temp')}",
-    f"--specpath={os.path.join(ROOT, 'build')}",
-    "--clean",
-])
+    "--name", "IMIRROR4FREE",
+    f"--icon={ICON_FILE}",
+    f"--add-data={PROJECT_ROOT / 'imirror'};imirror",
+    f"--add-data={PROJECT_ROOT / 'assets'};assets",
+    "--hidden-import", "pymobiledevice3",
+    "--hidden-import", "pymobiledevice3.usbmux",
+    "--hidden-import", "pymobiledevice3.lockdown",
+    "--hidden-import", "PyQt6",
+    "--hidden-import", "PyQt6.QtOpenGLWidgets",
+    "--hidden-import", "OpenGL",
+    "--hidden-import", "OpenGL.GL",
+    "--hidden-import", "av",
+    "--hidden-import", "numpy",
+    "--hidden-import", "PIL",
+    "--collect-all", "pymobiledevice3",
+    str(MAIN_SCRIPT),
+]
+
+print(f"🔨 Building IMIRROR4FREE.exe...")
+print(f"   Project root: {PROJECT_ROOT}")
+print(f"   Icon: {ICON_FILE}")
+print(f"   Main script: {MAIN_SCRIPT}")
+result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+sys.exit(result.returncode)
