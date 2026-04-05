@@ -1,89 +1,113 @@
-name: Build IMIRROR4FREE
+name: Build Windows EXE
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-env:
-  PYTHONIOENCODING: utf-8
-  PYTHONUTF8: "1"
-
 jobs:
-  build-windows:
-    name: Build Windows Installer
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller>=6.0.0
-
-      - name: Build with PyInstaller (onedir)
-        run: python build/build_exe.py --debug
-
-      - name: Verify PyInstaller output
+      - name: Download Python 3.12 Embeddable
         shell: pwsh
         run: |
-          $exe = "dist\IMIRROR4FREE\IMIRROR4FREE.exe"
-          if (!(Test-Path $exe)) {
-            Write-Error "Build output not found at $exe"
-            exit 1
+          $pyVersion = "3.12.7"
+          $url = "https://www.python.org/ftp/python/${pyVersion}/python-${pyVersion}-embed-amd64.zip"
+          Write-Host "Downloading Python ${pyVersion} embeddable package..."
+          Invoke-WebRequest -Uri $url -OutFile python-embed.zip
+          New-Item -ItemType Directory -Path dist\IMIRROR4FREE\python -Force | Out-Null
+          Expand-Archive python-embed.zip -DestinationPath dist\IMIRROR4FREE\python
+          Write-Host "Extracted to dist\IMIRROR4FREE\python\"
+
+      - name: Configure Python and Install Pip
+        shell: pwsh
+        run: |
+          $pythonDir = "dist\IMIRROR4FREE\python"
+
+          # Create site-packages directory
+          New-Item -ItemType Directory -Path "$pythonDir\Lib\site-packages" -Force | Out-Null
+
+          # Configure ._pth file:
+          #   python312.zip  = stdlib
+          #   .              = python dir itself
+          #   ..             = parent dir (where imirror/ and run.py live)
+          #   Lib\site-packages = pip-installed packages
+          #   import site    = enable site-packages discovery
+          @(
+            "python312.zip",
+            ".",
+            "..",
+            "Lib\site-packages",
+            "import site"
+          ) | Set-Content "$pythonDir\python312._pth" -Encoding ASCII
+
+          Write-Host "python312._pth contents:"
+          Get-Content "$pythonDir\python312._pth"
+
+          # Install pip into the embeddable distribution
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile get-pip.py
+          & "$pythonDir\python.exe" get-pip.py --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install pip" }
+          Write-Host "Pip installed successfully."
+
+      - name: Install Dependencies
+        shell: pwsh
+        run: |
+          $python = "dist\IMIRROR4FREE\python\python.exe"
+
+          # Install all requirements into the embeddable Python's site-packages
+          & $python -m pip install -r requirements.txt --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies" }
+
+          Write-Host "`nInstalled packages:"
+          & $python -m pip list
+
+      - name: Bundle Application
+        shell: pwsh
+        run: |
+          # Copy our source code next to the python directory
+          Copy-Item -Path imirror -Destination dist\IMIRROR4FREE\imirror -Recurse
+          Copy-Item -Path run.py -Destination dist\IMIRROR4FREE\run.py
+          Copy-Item -Path build\debug.bat -Destination dist\IMIRROR4FREE\debug.bat
+
+          # Show final structure summary
+          Write-Host "`nBundle contents:"
+          Get-ChildItem dist\IMIRROR4FREE -Directory | ForEach-Object {
+            $size = (Get-ChildItem $_.FullName -Recurse -File | Measure-Object -Property Length -Sum).Sum
+            Write-Host "  $($_.Name)/ - $([math]::Round($size / 1MB, 1)) MB"
           }
-          Write-Output "[OK] PyInstaller build complete"
-          $size = (Get-Item $exe).Length / 1MB
-          Write-Output "   EXE Size: $([math]::Round($size, 1)) MB"
+          Get-ChildItem dist\IMIRROR4FREE -File | ForEach-Object {
+            Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1KB, 1)) KB"
+          }
+          $total = (Get-ChildItem dist\IMIRROR4FREE -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          Write-Host "`nTotal bundle size: $([math]::Round($total / 1MB, 1)) MB"
 
       - name: Install NSIS
         shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          # Verify NSIS is installed
-          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
-          if (!(Test-Path $nsis)) {
-            Write-Error "NSIS not found at $nsis"
-            exit 1
-          }
-          Write-Output "[OK] NSIS installed at $nsis"
+        run: choco install nsis -y --no-progress
 
-      - name: Build NSIS installer
+      - name: Build NSIS Installer
         shell: pwsh
         run: |
-          # Copy NSIS script to project root where dist/ folder is
-          Copy-Item "build\installer.nsi" -Destination "installer.nsi"
-          
-          # Run NSIS
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
-          
-          # Verify installer was created
-          if (!(Test-Path "IMIRROR4FREE-Setup.exe")) {
-            Write-Error "NSIS installer was not created!"
-            exit 1
-          }
-          $size = (Get-Item "IMIRROR4FREE-Setup.exe").Length / 1MB
-          Write-Output "[OK] Installer created: $([math]::Round($size, 1)) MB"
+          & "C:\Program Files (x86)\NSIS\makensis.exe" build\installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "NSIS build failed" }
+          $installer = Get-Item dist\IMIRROR4FREE-Setup.exe
+          Write-Host "Installer size: $([math]::Round($installer.Length / 1MB, 1)) MB"
 
-      - name: Upload Setup installer
+      - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Setup
-          path: IMIRROR4FREE-Setup.exe
-          retention-days: 90
+          path: dist\IMIRROR4FREE-Setup.exe
+          compression-level: 0
 
-      - name: Upload portable build (fallback)
+      - name: Upload Portable
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Portable
-          path: dist/IMIRROR4FREE/
-          retention-days: 90
+          path: dist\IMIRROR4FREE\
