@@ -18,6 +18,9 @@ import struct
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Magic constants (little-endian) ────────────────────────────────
@@ -94,7 +97,7 @@ class Packet:
 @dataclass
 class VideoFrame:
     """Decoded video frame from a FEED packet."""
-    data: bytes             # Raw H.264 NAL units
+    data: bytes             # Raw H.264 NAL units (Annex B format)
     timestamp_ns: int       # Presentation timestamp in nanoseconds
     is_keyframe: bool       # Whether this is an IDR frame
     width: int = 0
@@ -299,23 +302,193 @@ def build_cmtime(nanoseconds: int) -> bytes:
     return struct.pack("<qiiq", nanoseconds, timescale, flags, epoch)
 
 
-def extract_h264_from_feed(payload: bytes) -> Optional[bytes]:
-    """Extract raw H.264 NAL unit data from a FEED packet's CMSampleBuffer.
+# ─── H.264 extraction from CMSampleBuffer ──────────────────────────
 
-    The CMSampleBuffer contains the H.264 data with a 4-byte length prefix
-    per NAL unit (AVCC format). We convert to Annex B format (start codes).
+# Annex B start code used by standard H.264 decoders
+_ANNEX_B_START_CODE = b"\x00\x00\x00\x01"
+
+# Valid H.264 NAL unit types (used for heuristic detection)
+_VALID_NAL_TYPES = frozenset({
+    1,   # Non-IDR slice
+    2,   # Slice data partition A
+    3,   # Slice data partition B
+    4,   # Slice data partition C
+    5,   # IDR slice (keyframe)
+    6,   # SEI (supplemental enhancement information)
+    7,   # SPS (sequence parameter set)
+    8,   # PPS (picture parameter set)
+    9,   # Access unit delimiter
+    10,  # End of sequence
+    11,  # End of stream
+    12,  # Filler data
+})
+
+
+def extract_h264_from_feed(payload: bytes) -> Optional[bytes]:
+    """Extract H.264 NAL units from a FEED packet's CMSampleBuffer.
+
+    The CMSampleBuffer wraps H.264 data in AVCC format (4-byte big-endian
+    length prefix per NAL unit). This function finds the H.264 data and
+    converts it to Annex B format (0x00000001 start codes) which is what
+    standard decoders (FFmpeg/PyAV) expect.
+
+    Strategy:
+    1. Try to find AVCC-formatted NALUs by scanning for valid length+NAL patterns
+    2. Fall back to returning raw data after 'sbuf' magic marker
+
+    Args:
+        payload: Raw FEED packet payload bytes.
+
+    Returns:
+        H.264 data in Annex B format, or None if extraction failed.
     """
-    # Find the sbuf magic
-    sbuf_magic = Magic.SBUF
-    idx = payload.find(sbuf_magic)
-    if idx < 0:
+    if len(payload) < 8:
         return None
 
-    # The actual media data is near the end of the CMSampleBuffer
-    # This is a simplified extractor — full implementation would parse
-    # the complete CMSampleBuffer structure
-    buf = payload[idx + 4:]
+    # Strategy 1: Find AVCC-formatted NAL units
+    # Scan for a valid 4-byte-length + NAL header pattern
+    annex_b = _try_avcc_to_annex_b(payload)
+    if annex_b:
+        return annex_b
 
-    # Look for NAL unit patterns (0x00000001 start codes or AVCC length-prefixed)
-    # For now, return the raw buffer for the decoder to handle
-    return buf if buf else None
+    # Strategy 2: Look for Annex B start codes already in the data
+    if _ANNEX_B_START_CODE in payload:
+        # Data might already be in Annex B format — find the first start code
+        idx = payload.find(_ANNEX_B_START_CODE)
+        if idx >= 0:
+            candidate = payload[idx:]
+            if len(candidate) > 8:
+                return bytes(candidate)
+
+    # Strategy 3: Fall back to raw data after sbuf magic
+    sbuf_idx = payload.find(Magic.SBUF)
+    if sbuf_idx >= 0:
+        # Skip the sbuf header (magic + length info)
+        raw = payload[sbuf_idx + 4:]
+        if raw:
+            return bytes(raw)
+
+    return None
+
+
+def _try_avcc_to_annex_b(payload: bytes) -> Optional[bytes]:
+    """Try to find and convert AVCC-formatted H.264 NALUs to Annex B.
+
+    AVCC format: [4-byte big-endian length][NAL unit data][4-byte length][NAL...]
+    Annex B format: [0x00000001][NAL unit data][0x00000001][NAL...]
+
+    Scans the payload for the first valid AVCC NAL unit sequence,
+    then converts all consecutive NALUs to Annex B.
+    """
+    # Scan for the start of AVCC data
+    # We look for a 4-byte length followed by a valid NAL header
+    for start_offset in range(len(payload) - 5):
+        # Read potential 4-byte NALU length (big-endian)
+        nalu_len = struct.unpack_from(">I", payload, start_offset)[0]
+
+        # Length must be reasonable (1 byte to 5MB)
+        if nalu_len < 1 or nalu_len > 5 * 1024 * 1024:
+            continue
+
+        # Must fit within remaining payload
+        if start_offset + 4 + nalu_len > len(payload):
+            continue
+
+        # Check NAL header byte
+        nal_header = payload[start_offset + 4]
+        forbidden_bit = (nal_header >> 7) & 1
+        nal_type = nal_header & 0x1F
+
+        # forbidden_zero_bit must be 0, NAL type must be valid
+        if forbidden_bit != 0:
+            continue
+        if nal_type not in _VALID_NAL_TYPES:
+            continue
+
+        # Found a valid starting point — convert all NALUs from here
+        return _convert_avcc_stream(payload, start_offset)
+
+    return None
+
+
+def _convert_avcc_stream(payload: bytes, offset: int) -> Optional[bytes]:
+    """Convert a sequence of AVCC NAL units starting at offset to Annex B."""
+    result = bytearray()
+    pos = offset
+
+    while pos < len(payload) - 4:
+        # Read 4-byte big-endian NALU length
+        nalu_len = struct.unpack_from(">I", payload, pos)[0]
+        pos += 4
+
+        # Validate length
+        if nalu_len < 1 or pos + nalu_len > len(payload):
+            break
+
+        # Validate NAL header
+        nal_header = payload[pos]
+        forbidden_bit = (nal_header >> 7) & 1
+        nal_type = nal_header & 0x1F
+
+        if forbidden_bit != 0 or nal_type not in _VALID_NAL_TYPES:
+            break  # End of valid NALU sequence
+
+        # Append Annex B start code + NALU data
+        result.extend(_ANNEX_B_START_CODE)
+        result.extend(payload[pos:pos + nalu_len])
+        pos += nalu_len
+
+    return bytes(result) if result else None
+
+
+def extract_sps_pps_from_cvrp(payload: bytes) -> tuple[Optional[bytes], Optional[bytes]]:
+    """Extract SPS and PPS NAL units from a CVRP packet's format description.
+
+    The CVRP packet contains a CMFormatDescription which includes the
+    H.264 decoder configuration record (SPS/PPS).
+
+    Returns:
+        Tuple of (sps_bytes, pps_bytes), either may be None if not found.
+    """
+    sps = None
+    pps = None
+
+    # Look for FDSC (format description) marker
+    fdsc_idx = payload.find(Magic.FDSC)
+    if fdsc_idx < 0:
+        return (None, None)
+
+    # Scan for NAL units within the format description
+    search_region = payload[fdsc_idx:]
+
+    # Look for SPS (NAL type 7) and PPS (NAL type 8) in AVCC format
+    pos = 0
+    while pos < len(search_region) - 5:
+        # Check for AVCC length-prefixed NALUs
+        try:
+            nalu_len = struct.unpack_from(">I", search_region, pos)[0]
+            if 2 <= nalu_len <= 256 and pos + 4 + nalu_len <= len(search_region):
+                nal_header = search_region[pos + 4]
+                nal_type = nal_header & 0x1F
+
+                if nal_type == 7 and sps is None:
+                    sps = bytes(search_region[pos + 4: pos + 4 + nalu_len])
+                elif nal_type == 8 and pps is None:
+                    pps = bytes(search_region[pos + 4: pos + 4 + nalu_len])
+
+                if sps and pps:
+                    break
+
+                pos += 4 + nalu_len
+                continue
+        except struct.error:
+            pass
+
+        pos += 1
+
+    if sps:
+        logger.info("Found SPS (%d bytes)", len(sps))
+    if pps:
+        logger.info("Found PPS (%d bytes)", len(pps))
+
+    return (sps, pps)

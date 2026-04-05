@@ -30,16 +30,23 @@ class AppConfig:
     start_fullscreen: bool = False
 
     # -- Capture --
-    capture_backend: CaptureBackend = CaptureBackend.SCREENSHOT
+    capture_backend: CaptureBackend = CaptureBackend.VALERIA_STREAM
     auto_select_backend: bool = True    # Auto-pick best available backend
 
     # -- Screenshot backend --
     screenshot_target_fps: int = 15     # Target FPS for screenshot loop
     screenshot_jpeg_quality: int = 95   # JPEG quality if transcoding
 
-    # -- Valeria backend (Phase 2) --
+    # -- Valeria backend --
     valeria_prefer_hevc: bool = True    # Prefer HEVC over H.264 if available
     valeria_max_fps: int = 60           # Max FPS to request
+
+    # -- USB I/O (Valeria) --
+    usb_read_size: int = 65536          # Bulk read size in bytes (64KB optimal for USB 2.0 HS)
+    usb_read_timeout_ms: int = 100      # Bulk read timeout in milliseconds
+    usb_write_timeout_ms: int = 1000    # Bulk write timeout in milliseconds
+    usb_health_timeout_s: float = 10.0  # Declare connection dead after this many seconds of silence
+    need_packet_interval: float = 0.033 # Seconds between NEED packets (~30 per second)
 
     # -- Decoder --
     decoder_type: DecoderType = DecoderType.HARDWARE_DXVA2
@@ -50,7 +57,7 @@ class AppConfig:
     show_fps_overlay: bool = False
     render_interpolation: str = "linear"   # "nearest" or "linear"
 
-    # -- Audio (Phase 2) --
+    # -- Audio --
     audio_enabled: bool = True
     audio_sample_rate: int = 48000
     audio_channels: int = 2
