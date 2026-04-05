@@ -44,7 +44,7 @@ from imirror.capture.base import CaptureBackend, CapturedFrame
 from imirror.config import config
 from imirror.usb.packets import (
     Magic, PacketType, Packet, VideoFrame, AudioSample,
-    read_packet,
+    read_packet, build_ping,
 )
 
 logger = logging.getLogger(__name__)
@@ -362,6 +362,21 @@ class ValeriaStreamCapture(CaptureBackend):
 
         logger.info("Valeria protocol loop starting...")
 
+        # ── Send initial PING to start the Valeria handshake ──────────
+        # The host must send a PING first to trigger the iPhone's protocol
+        # state machine. Without this, the iPhone never sends SYNC messages.
+        # Reference: quicktime_video_hack sends PING before entering read loop.
+        # AnyMiro does the same (in util.py, which failed to decompile, but
+        # the protocol flow requires host-initiated PING).
+        try:
+            ping_pkt = build_ping()
+            self._endpoint.write(ping_pkt)
+            logger.info("Sent initial PING to iPhone — waiting for handshake...")
+        except Exception as e:
+            logger.error("Failed to send initial PING: %s", e)
+            self._signal_error(f"Failed to send PING: {e}")
+            return
+
         while self._running:
             # ── Read from USB ───────────────────────────────────────
             try:
@@ -379,7 +394,10 @@ class ValeriaStreamCapture(CaptureBackend):
                             StreamError.CONNECTION_LOST,
                         )
                         return
-                continue
+                # NOTE: Do NOT 'continue' here — fall through to parse any
+                # previously buffered data and send periodic NEED packets.
+                # A timeout only means no NEW data arrived in this read cycle;
+                # there may still be complete packets waiting in read_buffer.
             except usb.core.USBError as e:
                 if self._running:
                     logger.error("USB read error: %s", e)

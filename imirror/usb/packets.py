@@ -345,7 +345,10 @@ def build_asyn_hpa1(device_audio_clock_ref: bytes) -> bytes:
     Returns:
         Complete ASYN HPA1 packet bytes.
     """
-    # AudioStreamBasicDescription (40 bytes)
+    # AudioStreamBasicDescription (40 bytes base + 16 bytes extra = 56 bytes)
+    # AnyMiro's AudioStreamBasicDescription.to_bytes() produces 56 bytes:
+    # the standard 40-byte ASBD struct followed by SampleRate repeated twice
+    # as float64. The iPhone expects this extended format.
     asbd = struct.pack("<dIIIIIIII",
         48000.0,      # SampleRate (float64)
         0x6C70636D,   # FormatID = "lpcm"
@@ -357,6 +360,8 @@ def build_asyn_hpa1(device_audio_clock_ref: bytes) -> bytes:
         16,           # BitsPerChannel
         0,            # Reserved
     )
+    # AnyMiro appends SampleRate twice as float64 in its to_bytes() method
+    asbd += struct.pack("<dd", 48000.0, 48000.0)
 
     # Audio configuration dict
     audio_config = _serialize_dict({
