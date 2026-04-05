@@ -30,6 +30,7 @@ from imirror.usb.packets import (
     build_asyn_hpd1, build_asyn_hpa1, build_asyn_hpd0,
     build_asyn_hpa0, build_cmtime, extract_h264_from_feed,
     extract_pcm_from_eat, extract_sps_pps_from_cvrp,
+    parse_cmsamplebuffer, avcc_to_annex_b, extract_sps_pps_from_fdsc,
 )
 
 logger = logging.getLogger(__name__)
@@ -340,7 +341,23 @@ class ValeriaSession:
             logger.debug("RELS: Clock released")
 
     def _handle_feed(self, packet: Packet) -> None:
-        h264_data = extract_h264_from_feed(packet.payload)
+        parsed = parse_cmsamplebuffer(packet.payload)
+        if not parsed or not parsed.sample_data:
+            # Fallback to old method
+            h264_data = extract_h264_from_feed(packet.payload)
+        else:
+            # Update SPS/PPS from FormatDescription if present (keyframe)
+            if parsed.has_format_description and parsed.format_description_bytes:
+                sps, pps = extract_sps_pps_from_fdsc(parsed.format_description_bytes)
+                if sps:
+                    self._sps = sps
+                    logger.debug("Updated SPS from FEED FormatDescription (%d bytes)", len(sps))
+                if pps:
+                    self._pps = pps
+                    logger.debug("Updated PPS from FEED FormatDescription (%d bytes)", len(pps))
+
+            h264_data = avcc_to_annex_b(parsed.sample_data)
+
         if h264_data and self._on_video_frame:
             # Detect keyframes by checking for IDR NAL type (5)
             is_keyframe = False
@@ -388,8 +405,13 @@ class ValeriaSession:
 
     def build_start_streaming_packets(self) -> list[bytes]:
         packets = []
-        packets.append(build_asyn_hpd1())
+        # HPD1 now includes display capabilities dict
+        packets.append(build_asyn_hpd1(
+            clock_ref=b"\x01" + b"\x00" * 7,
+            width=1920, height=1080,
+        ))
         if self._device_audio_clock_ref != b"\x00" * 8:
+            # HPA1 now includes audio configuration dict
             packets.append(build_asyn_hpa1(self._device_audio_clock_ref))
         if self._device_video_clock_ref != b"\x00" * 8:
             packets.append(build_asyn_need(self._device_video_clock_ref))

@@ -113,6 +113,29 @@ class AudioSample:
     channels: int = 2
 
 
+@dataclass
+class ParsedCMSampleBuffer:
+    """Parsed CMSampleBuffer from a FEED or EAT! packet.
+
+    Represents the structured contents of Apple's CMSampleBuffer binary format,
+    extracted by iterating the TLV sections (sbuf → opts/sdat/fdsc/nsmp/etc.).
+
+    Attributes:
+        sample_data: Raw media bytes from the ``sdat`` section (H.264 AVCC or PCM).
+        pts_value: Presentation timestamp value from the ``opts`` CMTime.
+        pts_timescale: Presentation timestamp timescale from the ``opts`` CMTime.
+        has_format_description: Whether an ``fdsc`` section was found (keyframes).
+        format_description_bytes: Raw ``fdsc`` bytes including the section header.
+        num_samples: Number of samples from the ``nsmp`` section.
+    """
+    sample_data: Optional[bytes] = None
+    pts_value: int = 0
+    pts_timescale: int = 0
+    has_format_description: bool = False
+    format_description_bytes: Optional[bytes] = None
+    num_samples: int = 0
+
+
 # ─── Packet reading ─────────────────────────────────────────────────
 
 # Valid top-level magic → PacketType mapping
@@ -248,25 +271,110 @@ def build_asyn_need(device_clock_ref: bytes) -> bytes:
     )
 
 
-def build_asyn_hpd1(clock_ref: bytes = b"\x01" + b"\x00" * 7) -> bytes:
-    """Build ASYN HPD1 — tell device to start video streaming."""
-    length = 20
+def build_asyn_hpd1(
+    clock_ref: bytes = b"\x01" + b"\x00" * 7,
+    width: int = 1920,
+    height: int = 1080,
+) -> bytes:
+    """Build ASYN HPD1 — tell device to start video streaming with display capabilities.
+
+    Sends a capabilities dictionary that tells the iPhone the receiver's display
+    resolution and codec support. Without this dict, the iPhone may default to
+    the lowest resolution or refuse to start streaming.
+
+    AnyMiro sends::
+
+        {
+            "Valeria": True,
+            "HEVCDecoderSupports444": True,
+            "DisplaySize": {"Width": <float>, "Height": <float>},
+        }
+
+    Args:
+        clock_ref: 8-byte clock reference (default: ``0x01`` padded).
+        width: Advertised display width in pixels.
+        height: Advertised display height in pixels.
+
+    Returns:
+        Complete ASYN HPD1 packet bytes.
+    """
+    # Build DisplaySize sub-dict
+    display_size = _serialize_dict({
+        "Width": ("nsnumber_f64", float(width)),
+        "Height": ("nsnumber_f64", float(height)),
+    })
+
+    # Build main capabilities dict
+    cap_dict = _serialize_dict({
+        "Valeria": ("bool", True),
+        "HEVCDecoderSupports444": ("bool", True),
+        "DisplaySize": ("dict", display_size),
+    })
+
+    length = 20 + len(cap_dict)
     return (
         struct.pack("<I", length)
         + Magic.ASYN
         + clock_ref
         + Magic.HPD1
+        + cap_dict
     )
 
 
 def build_asyn_hpa1(device_audio_clock_ref: bytes) -> bytes:
-    """Build ASYN HPA1 — tell device to start audio streaming."""
-    length = 20
+    """Build ASYN HPA1 — tell device to start audio streaming with configuration.
+
+    Sends an audio configuration dictionary containing the AudioStreamBasicDescription
+    and playback parameters. Without this dict, the iPhone may not send audio or
+    may use an unexpected format.
+
+    AnyMiro sends::
+
+        {
+            "BufferAheadInterval": 0.073,
+            "deviceUID": "Valeria",
+            "ScreenLatency": 0.04,
+            "formats": <ASBD bytes>,
+            "EDIDAC3Support": 0,
+            "deviceName": "Valeria",
+        }
+
+    Args:
+        device_audio_clock_ref: 8-byte device audio clock reference from CWPA.
+
+    Returns:
+        Complete ASYN HPA1 packet bytes.
+    """
+    # AudioStreamBasicDescription (40 bytes)
+    asbd = struct.pack("<dIIIIIIII",
+        48000.0,      # SampleRate (float64)
+        0x6C70636D,   # FormatID = "lpcm"
+        12,           # FormatFlags (kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked)
+        4,            # BytesPerPacket
+        1,            # FramesPerPacket
+        4,            # BytesPerFrame
+        2,            # ChannelsPerFrame
+        16,           # BitsPerChannel
+        0,            # Reserved
+    )
+
+    # Audio configuration dict
+    audio_config = _serialize_dict({
+        "BufferAheadInterval": ("nsnumber_f64", 0.073),
+        "deviceUID": ("string", "Valeria"),
+        "ScreenLatency": ("nsnumber_f64", 0.04),
+        "formats": ("data", asbd),
+        "EDIDAC3Support": ("nsnumber_u32", 0),
+        "deviceName": ("string", "Valeria"),
+    })
+
+    length = 20 + len(audio_config)
     return (
         struct.pack("<I", length)
         + Magic.ASYN
         + device_audio_clock_ref
         + Magic.HPA1
+        + audio_config
     )
 
 
@@ -294,22 +402,99 @@ def build_asyn_hpa0(device_audio_clock_ref: bytes) -> bytes:
 
 # ─── Serialization helpers ──────────────────────────────────────────
 
+def _serialize_dict(entries: dict) -> bytes:
+    """Serialize a dictionary in Valeria's binary DICT format.
+
+    Produces the wire format::
+
+        DICT: [4: totalLength LE32][4: "dict" magic]
+          KEYV*: [4: kvLength LE32][4: "keyv" magic]
+            STRK: [4: keyLength LE32][4: "strk" magic][N: UTF-8 key]
+            VALUE: one of BULV, NMBV, STRV, DATV, or nested DICT
+
+    Args:
+        entries: Ordered mapping of ``{key_name: (type_tag, value)}``.
+            Supported type tags:
+
+            - ``"bool"``  → BULV (1 byte: 0x00 or 0x01)
+            - ``"string"`` → STRV (UTF-8 encoded)
+            - ``"data"``   → DATV (raw bytes)
+            - ``"dict"``   → nested DICT (already-serialized bytes)
+            - ``"nsnumber_u32"`` → NMBV type 0x03, uint32
+            - ``"nsnumber_u64"`` → NMBV type 0x04, uint64
+            - ``"nsnumber_f64"`` → NMBV type 0x06, float64
+
+    Returns:
+        Serialized DICT bytes including the outer DICT header.
+    """
+    kv_bytes = bytearray()
+
+    for key_name, (value_type, value) in entries.items():
+        # Serialize key: STRK = [length LE32]["strk" magic][UTF-8 key string]
+        key_encoded = key_name.encode("utf-8")
+        key_data = struct.pack("<I", 8 + len(key_encoded)) + Magic.STRK + key_encoded
+
+        # Serialize value based on type
+        if value_type == "bool":
+            # BULV: [4: 9 LE32][4: "bulv"][1: bool byte]
+            val_data = struct.pack("<I", 9) + Magic.BULV + (b"\x01" if value else b"\x00")
+        elif value_type == "string":
+            # STRV: [4: length LE32][4: "strv"][N: UTF-8 string]
+            s = value.encode("utf-8")
+            val_data = struct.pack("<I", 8 + len(s)) + Magic.STRV + s
+        elif value_type == "data":
+            # DATV: [4: length LE32][4: "datv"][N: raw bytes]
+            val_data = struct.pack("<I", 8 + len(value)) + Magic.DATV + value
+        elif value_type == "nsnumber_u32":
+            # NMBV: [4: 13 LE32][4: "nmbv"][1: 0x03][4: uint32 LE]
+            nmbv_payload = b"\x03" + struct.pack("<I", value)
+            val_data = struct.pack("<I", 8 + len(nmbv_payload)) + Magic.NMBV + nmbv_payload
+        elif value_type == "nsnumber_u64":
+            # NMBV: [4: 17 LE32][4: "nmbv"][1: 0x04][8: uint64 LE]
+            nmbv_payload = b"\x04" + struct.pack("<Q", value)
+            val_data = struct.pack("<I", 8 + len(nmbv_payload)) + Magic.NMBV + nmbv_payload
+        elif value_type == "nsnumber_f64":
+            # NMBV: [4: 17 LE32][4: "nmbv"][1: 0x06][8: float64 LE]
+            nmbv_payload = b"\x06" + struct.pack("<d", value)
+            val_data = struct.pack("<I", 8 + len(nmbv_payload)) + Magic.NMBV + nmbv_payload
+        elif value_type == "dict":
+            # Nested DICT — value is already-serialized bytes
+            val_data = value
+        else:
+            raise ValueError(f"Unknown value type: {value_type}")
+
+        # Wrap in KEYV: [length LE32]["keyv" magic][key_data][val_data]
+        kv_content = key_data + val_data
+        kv_wrapped = struct.pack("<I", 8 + len(kv_content)) + Magic.KEYV + kv_content
+        kv_bytes.extend(kv_wrapped)
+
+    # Wrap everything in DICT: [length LE32]["dict" magic][keyv pairs...]
+    return struct.pack("<I", 8 + len(kv_bytes)) + Magic.DICT + bytes(kv_bytes)
+
+
 def build_dict_with_error(error: int = 0) -> bytes:
-    """Build a serialized dictionary: {"Error": NSNumber(error)}."""
+    """Build a serialized dictionary: ``{"Error": NSNumber(error)}``.
+
+    Fixed implementation: NSNumber uses a 1-byte type specifier (0x03 for uint32),
+    not a 4-byte integer as was previously emitted.
+    """
     # Key: "Error"
     key_str = b"Error"
-    key_data = struct.pack("<I", 4 + 4 + len(key_str)) + Magic.STRK + key_str
+    key_data = struct.pack("<I", 8 + len(key_str)) + Magic.STRK + key_str
 
     # Value: NSNumber uint32
-    value_data = struct.pack("<I", 4 + 4 + 4) + Magic.NMBV + struct.pack("<II", 3, error)
+    # [8-byte header (length + "nmbv")][1-byte type specifier][4-byte value]
+    # Total = 13 bytes, so length field = 13
+    nsnumber_payload = b"\x03" + struct.pack("<I", error)  # 5 bytes
+    value_data = struct.pack("<I", 8 + len(nsnumber_payload)) + Magic.NMBV + nsnumber_payload
 
     # KeyValue pair
     kv_data = key_data + value_data
-    kv_wrapped = struct.pack("<I", 4 + 4 + len(kv_data)) + Magic.KEYV + kv_data
+    kv_wrapped = struct.pack("<I", 8 + len(kv_data)) + Magic.KEYV + kv_data
 
     # Dict wrapper
     dict_data = kv_wrapped
-    return struct.pack("<I", 4 + 4 + len(dict_data)) + Magic.DICT + dict_data
+    return struct.pack("<I", 8 + len(dict_data)) + Magic.DICT + dict_data
 
 
 def parse_cmtime(data: bytes, offset: int = 0) -> tuple[int, int]:
@@ -331,6 +516,120 @@ def build_cmtime(nanoseconds: int) -> bytes:
     flags = 1  # valid
     epoch = 0
     return struct.pack("<qiiq", nanoseconds, timescale, flags, epoch)
+
+
+# ─── CMSampleBuffer parsing ────────────────────────────────────────
+
+def parse_cmsamplebuffer(payload: bytes) -> Optional[ParsedCMSampleBuffer]:
+    """Parse a CMSampleBuffer from a FEED or EAT! packet payload.
+
+    Apple's CMSampleBuffer binary format wraps media data in a TLV structure::
+
+        [4: totalLength LE32][4: "sbuf" magic]
+        Section*:
+          [4: sectionLength LE32][4: sectionMagic (4 bytes)][data...]
+
+    Known sections:
+      - ``sdat`` — SampleData (the actual H.264 AVCC or raw PCM bytes)
+      - ``opts`` — OutputPresentationTimestamp (24-byte CMTime)
+      - ``fdsc`` — FormatDescription (SPS/PPS on keyframes)
+      - ``nsmp`` — NumSamples (uint32 count)
+      - ``stia`` — SampleTimingInfoArray
+      - ``ssiz`` — SampleSizes
+      - ``satt`` — SampleAttachments
+      - ``sary`` — CreateIfNecessary
+
+    Args:
+        payload: Raw FEED or EAT! packet payload bytes.
+
+    Returns:
+        A :class:`ParsedCMSampleBuffer` with the extracted fields, or ``None``
+        if the payload does not start with a valid ``sbuf`` header.
+    """
+    if len(payload) < 8:
+        return None
+
+    # Parse outer sbuf container: [4: length LE32][4: "sbuf" bytes]
+    total_len = struct.unpack_from("<I", payload, 0)[0]
+    magic = payload[4:8]
+    if magic != Magic.SBUF:
+        return None
+
+    result = ParsedCMSampleBuffer()
+    pos = 8  # After sbuf header
+
+    while pos + 8 <= len(payload):
+        section_len = struct.unpack_from("<I", payload, pos)[0]
+        section_magic = payload[pos + 4:pos + 8]
+
+        if section_len < 8 or pos + section_len > len(payload):
+            break
+
+        data_start = pos + 8
+        data_len = section_len - 8
+
+        if section_magic == b"opts":
+            # OutputPresentationTimestamp: 24-byte CMTime at offset 0 within section data
+            if data_len >= 24:
+                result.pts_value = struct.unpack_from("<q", payload, data_start)[0]
+                result.pts_timescale = struct.unpack_from("<i", payload, data_start + 8)[0]
+
+        elif section_magic == b"sdat":
+            # SampleData — the actual H.264 AVCC or raw PCM bytes
+            result.sample_data = payload[data_start:data_start + data_len]
+
+        elif section_magic == Magic.FDSC:
+            # FormatDescription — present on keyframes, contains SPS/PPS
+            result.has_format_description = True
+            result.format_description_bytes = payload[pos:pos + section_len]
+
+        elif section_magic == b"nsmp":
+            # NumSamples
+            if data_len >= 4:
+                result.num_samples = struct.unpack_from("<I", payload, data_start)[0]
+
+        # Other sections (stia, ssiz, satt, sary) are skipped — not needed for extraction
+
+        pos += section_len
+
+    return result
+
+
+def avcc_to_annex_b(avcc_data: bytes) -> Optional[bytes]:
+    """Convert AVCC-formatted H.264 data to Annex B format.
+
+    AVCC format (used inside CMSampleBuffer ``sdat``)::
+
+        [4-byte BE length][NAL unit][4-byte BE length][NAL unit]...
+
+    Annex B format (used by standard decoders like FFmpeg/PyAV)::
+
+        [0x00000001][NAL unit][0x00000001][NAL unit]...
+
+    This is a simple, deterministic conversion — no heuristic scanning needed
+    because the input is already the isolated ``sdat`` section.
+
+    Args:
+        avcc_data: Raw AVCC-encoded bytes from the ``sdat`` section.
+
+    Returns:
+        H.264 data in Annex B format, or ``None`` if no valid NAL units found.
+    """
+    result = bytearray()
+    pos = 0
+
+    while pos + 4 <= len(avcc_data):
+        nalu_len = struct.unpack_from(">I", avcc_data, pos)[0]
+        pos += 4
+
+        if nalu_len < 1 or pos + nalu_len > len(avcc_data):
+            break
+
+        result.extend(_ANNEX_B_START_CODE)
+        result.extend(avcc_data[pos:pos + nalu_len])
+        pos += nalu_len
+
+    return bytes(result) if result else None
 
 
 # ─── H.264 extraction from CMSampleBuffer ──────────────────────────
@@ -358,10 +657,30 @@ _VALID_NAL_TYPES = frozenset({
 def extract_h264_from_feed(payload: bytes) -> Optional[bytes]:
     """Extract H.264 NAL units from a FEED packet's CMSampleBuffer.
 
-    The CMSampleBuffer wraps H.264 data in AVCC format (4-byte big-endian
-    length prefix per NAL unit). This function finds the H.264 data and
-    converts it to Annex B format (0x00000001 start codes) which is what
-    standard decoders (FFmpeg/PyAV) expect.
+    Uses structured CMSampleBuffer parsing to locate the ``sdat`` section,
+    then performs a clean AVCC → Annex B conversion. Falls back to the
+    heuristic byte-scanning method if structured parsing fails.
+
+    Args:
+        payload: Raw FEED packet payload bytes.
+
+    Returns:
+        H.264 data in Annex B format, or None if extraction failed.
+    """
+    parsed = parse_cmsamplebuffer(payload)
+    if parsed and parsed.sample_data:
+        annex_b = avcc_to_annex_b(parsed.sample_data)
+        if annex_b:
+            return annex_b
+    # Fallback to old heuristic for robustness
+    return _extract_h264_from_feed_heuristic(payload)
+
+
+def _extract_h264_from_feed_heuristic(payload: bytes) -> Optional[bytes]:
+    """Extract H.264 NAL units using heuristic byte-scanning (legacy fallback).
+
+    This is the original extraction method, kept as a fallback for payloads
+    that don't conform to the standard CMSampleBuffer TLV structure.
 
     Strategy:
     1. Try to find AVCC-formatted NALUs by scanning for valid length+NAL patterns
@@ -620,13 +939,56 @@ def _try_parse_avcc_record(data: bytes) -> tuple[Optional[bytes], Optional[bytes
     return (None, None)
 
 
+def extract_sps_pps_from_fdsc(fdsc_bytes: bytes) -> tuple[Optional[bytes], Optional[bytes]]:
+    """Extract SPS and PPS from a FormatDescription section in a CMSampleBuffer.
+
+    On keyframes, the FEED CMSampleBuffer contains an ``fdsc`` section with the
+    full CMFormatDescription, which includes the AVCC decoder configuration record
+    containing updated SPS and PPS NAL units.
+
+    This enables dynamic SPS/PPS updates (e.g. resolution changes) that the
+    initial CVRP handshake cannot cover.
+
+    Args:
+        fdsc_bytes: Raw ``fdsc`` bytes **including** the section header
+            (i.e. ``[4: length LE32][4: "fdsc" magic][data...]``).
+
+    Returns:
+        Tuple of ``(sps_bytes, pps_bytes)``, either may be ``None`` if not found.
+    """
+    return _try_parse_avcc_record(fdsc_bytes)
+
+
 # ─── PCM audio extraction from CMSampleBuffer ──────────────────────
 
 def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
     """Extract raw PCM audio data from an EAT! packet's CMSampleBuffer.
 
-    EAT! packets wrap PCM audio in a CMSampleBuffer. The PCM data is
-    the raw sample bytes after the buffer metadata.
+    Uses structured CMSampleBuffer parsing to locate the ``sdat`` section
+    containing raw PCM samples. Falls back to the heuristic method if
+    structured parsing fails.
+
+    Args:
+        payload: Raw EAT! packet payload bytes.
+
+    Returns:
+        Raw PCM audio bytes (int16 stereo), or None if extraction failed.
+    """
+    parsed = parse_cmsamplebuffer(payload)
+    if parsed and parsed.sample_data:
+        frame_size = 4  # stereo int16 (2 channels × 2 bytes)
+        aligned = (len(parsed.sample_data) // frame_size) * frame_size
+        if aligned > 0:
+            return parsed.sample_data[:aligned]
+    # Fallback to old heuristic
+    return _extract_pcm_from_eat_heuristic(payload)
+
+
+def _extract_pcm_from_eat_heuristic(payload: bytes) -> Optional[bytes]:
+    """Extract raw PCM audio using heuristic byte-scanning (legacy fallback).
+
+    This is the original extraction method, kept as a fallback for payloads
+    that don't conform to the standard CMSampleBuffer TLV structure.
 
     Args:
         payload: Raw EAT! packet payload bytes.
