@@ -1,48 +1,82 @@
 """
-Valeria Stream Capture Backend (Phase 2).
+Valeria Stream Capture Backend — PHASE 2 COMPLETE.
 
-Uses the Valeria protocol to receive a true H.264/HEVC video stream
-from the iPhone over USB. This is the high-performance backend that
-delivers 30-60 FPS at native resolution with minimal latency.
+Uses Apple's Valeria protocol to receive a true H.264 video stream
+and PCM audio from the iPhone over USB bulk endpoints. This is the
+high-performance backend delivering 30-60 FPS at native resolution
+with minimal latency — the same protocol QuickTime Player uses.
 
-This is the same protocol that QuickTime and AnyMiro use.
+Architecture:
+    USB Bulk IN → Packet Parser → ValeriaSession → VideoDecoder → CapturedFrame
+    USB Bulk OUT ← Response Builder ← ValeriaSession
 
-Status: In Development
-- Protocol packet handling: ✅ Complete
-- USB endpoint communication: 🔧 Requires platform-specific driver setup
-- H.264 decode pipeline: ✅ Complete (via PyAV)
-- Windows driver integration: 🔧 Requires WinUSB/Zadig setup
+Streaming lifecycle:
+    1. Initialize USB endpoints (find iPhone, enable QT config, claim AV interface)
+    2. PING handshake
+    3. SYNC negotiations (CWPA → audio clock, AFMT → audio format,
+       CVRP → video clock + H.264 format, CLOK/TIME/SKEW → clock sync)
+    4. Send HPD1 + HPA1 to start video + audio
+    5. Continuous loop:
+       - Read packets from USB bulk IN
+       - Route through ValeriaSession protocol handlers
+       - Decode H.264 FEED frames via PyAV (hardware accelerated)
+       - Emit CapturedFrame to renderer
+       - Feed PCM EAT! samples to AudioPlayer
+       - Send NEED packets to keep video flowing
+    6. Clean shutdown (HPA0 + HPD0, release endpoints)
 
-Prerequisites for Phase 2:
-1. Install Zadig (https://zadig.akeo.ie/)
-2. Replace iPhone AV interface driver with WinUSB
-3. This allows pyusb to access the hidden QT USB endpoints
+Prerequisites:
+    - iTunes installed (provides Apple Mobile Device USB support)
+    - WinUSB driver for the AV interface (install via Zadig)
+    - pyusb + libusb-package (bundled in requirements.txt)
 """
 
 import logging
+import struct
 import threading
 import time
 from typing import Optional
+from collections import deque
 
 import numpy as np
 
 from imirror.capture.base import CaptureBackend, CapturedFrame
+from imirror.config import config
+from imirror.usb.packets import (
+    Magic, PacketType, Packet, VideoFrame, AudioSample,
+    read_packet,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ValeriaStreamCapture(CaptureBackend):
     """
-    High-performance capture backend using the Valeria protocol.
+    High-performance capture backend using the Valeria USB AV protocol.
 
     Receives H.264 video frames directly from the iPhone over USB
-    bulk endpoints, decodes them with GPU-accelerated FFmpeg, and
-    delivers pixel buffers to the renderer.
+    bulk endpoints, decodes them with hardware-accelerated FFmpeg,
+    and delivers RGB pixel buffers to the renderer at 30-60 FPS.
+
+    Falls back gracefully to the Screenshot backend if USB raw access
+    is unavailable (e.g., WinUSB driver not installed).
     """
 
     def __init__(self):
         super().__init__()
         self._thread: Optional[threading.Thread] = None
+        self._endpoint = None           # USBEndpoint
+        self._session = None            # ValeriaSession
+        self._decoder = None            # VideoDecoder
+        self._audio = None              # AudioPlayer
+
+        # FPS tracking
+        self._frame_times: deque = deque(maxlen=120)
+
+        # Protocol state
+        self._handshake_done = threading.Event()
+        self._streaming_started = False
+        self._init_error: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -53,26 +87,32 @@ class ValeriaStreamCapture(CaptureBackend):
         return 60
 
     def is_available(self) -> bool:
-        """Check if raw USB access is available (requires WinUSB driver)."""
+        """Check if raw USB access is available for Valeria streaming.
+
+        Returns True if:
+        - pyusb is installed
+        - libusb backend is available
+        - An Apple device is found on the USB bus
+        """
         try:
-            import usb.core
-            # Try to find an Apple device with the QT config
-            dev = usb.core.find(idVendor=0x05AC)
-            if dev is None:
+            from imirror.usb.endpoint import USBEndpoint
+            endpoint = USBEndpoint()
+            found = endpoint.find_iphone()
+            if not found:
                 logger.debug("Valeria: No Apple USB device found via pyusb")
                 return False
 
-            # Check if the device has the hidden QT configuration
-            # (SubClass 0x2A on the AV interface)
-            for cfg in dev:
-                for intf in cfg:
-                    if intf.bInterfaceSubClass == 0x2A:
-                        logger.info("Valeria: Found active QT USB configuration!")
-                        return True
+            # Device found — Valeria is potentially available
+            # (QT config will be enabled in start())
+            if endpoint.has_qt_config():
+                logger.info("Valeria: QT AV configuration already active!")
+            else:
+                logger.info("Valeria: Apple device found — QT config can be enabled")
+            return True
 
-            logger.debug("Valeria: Apple device found but QT config not active")
+        except ImportError:
+            logger.debug("Valeria: pyusb not installed")
             return False
-
         except Exception as e:
             logger.debug("Valeria: Not available — %s", e)
             return False
@@ -80,36 +120,371 @@ class ValeriaStreamCapture(CaptureBackend):
     def start(self, device_udid: str) -> bool:
         """Start the Valeria stream capture.
 
-        TODO Phase 2:
-        1. Enable hidden QT USB configuration via control request
-        2. Claim AV bulk endpoints
-        3. Perform PING handshake
-        4. Handle SYNC exchanges
-        5. Start receiving FEED/EAT packets
+        Launches the streaming thread which handles USB initialization,
+        protocol handshake, and the main packet loop.
+
+        Args:
+            device_udid: iPhone UDID (for logging; USB uses bus-level addressing).
+
+        Returns:
+            True if streaming initialization succeeded.
         """
-        logger.warning(
-            "⚠️ Valeria Stream backend is in development. "
-            "Falling back to Screenshot backend."
+        if self._running:
+            return True
+
+        logger.info("🎬 Starting Valeria stream for device %s...", device_udid)
+
+        self._running = True
+        self._streaming_started = False
+        self._handshake_done.clear()
+        self._init_error = None
+
+        self._thread = threading.Thread(
+            target=self._stream_loop,
+            name="valeria-stream",
+            daemon=True,
         )
-        return False
+        self._thread.start()
+
+        # Wait for handshake or early failure (up to 20s for QT config + PING)
+        self._handshake_done.wait(timeout=20.0)
+
+        if self._init_error:
+            logger.error("Valeria start failed: %s", self._init_error)
+            self._running = False
+            return False
+
+        if not self._running:
+            return False
+
+        return True
 
     def stop(self) -> None:
-        """Stop the Valeria stream."""
+        """Stop the Valeria stream and clean up resources."""
+        if not self._running:
+            return
+
+        logger.info("Stopping Valeria stream...")
         self._running = False
+
+        # Send stop streaming commands if we were active
+        if self._endpoint and self._endpoint.is_connected and self._session:
+            try:
+                for pkt in self._session.build_stop_streaming_packets():
+                    self._endpoint.write(pkt, timeout=500)
+                logger.info("Sent stop streaming commands")
+            except Exception:
+                pass
+
+        # Wait for thread to finish
         if self._thread:
-            self._thread.join(timeout=3.0)
+            self._thread.join(timeout=5.0)
             self._thread = None
 
-    def _stream_loop(self) -> None:
-        """Main streaming loop — reads from USB bulk endpoints.
+        self._cleanup()
 
-        TODO Phase 2: Implement full USB communication:
-        1. Read raw bytes from AV bulk IN endpoint
-        2. Accumulate into complete packets (length-prefixed)
-        3. Parse packets via read_packet()
-        4. Route to ValeriaSession.handle_packet()
-        5. Send responses to AV bulk OUT endpoint
-        6. Decode H.264 FEED data via PyAV
-        7. Convert to CapturedFrame and emit
+    # ─── Main streaming loop ────────────────────────────────────────
+
+    def _stream_loop(self) -> None:
+        """Main streaming thread — full USB AV communication lifecycle.
+
+        This runs on a background thread and handles:
+        1. USB initialization (find device, enable QT, claim endpoints)
+        2. Protocol session setup
+        3. Decoder + audio initialization
+        4. Continuous packet reading/handling loop
         """
-        pass
+        try:
+            # Phase 1: Initialize USB connection
+            if not self._init_usb():
+                return
+
+            # Phase 2: Create protocol session
+            from imirror.usb.valeria import ValeriaSession
+            self._session = ValeriaSession()
+            self._session.on_video_frame(self._on_video_frame)
+            self._session.on_audio_sample(self._on_audio_sample)
+
+            # Phase 3: Initialize video decoder (configured after CVRP handshake)
+            from imirror.decode.video import VideoDecoder
+            self._decoder = VideoDecoder()
+
+            # Phase 4: Initialize audio player
+            from imirror.decode.audio import AudioPlayer
+            self._audio = AudioPlayer()
+            self._audio.start()
+
+            # Phase 5: Run the protocol packet loop
+            self._protocol_loop()
+
+        except Exception as e:
+            logger.exception("Valeria stream loop crashed: %s", e)
+            self._signal_error(f"Stream error: {e}")
+        finally:
+            self._running = False
+            self._handshake_done.set()  # Unblock start() if still waiting
+            self._cleanup()
+
+    def _init_usb(self) -> bool:
+        """Initialize USB connection and claim AV endpoints.
+
+        Returns True if USB is ready for protocol communication.
+        """
+        from imirror.usb.endpoint import USBEndpoint
+
+        self._endpoint = USBEndpoint()
+
+        # Step 1: Find iPhone on USB bus
+        if not self._endpoint.find_iphone():
+            self._signal_error("No iPhone found on USB bus")
+            return False
+
+        logger.info("USB: Found %s", self._endpoint.device_info)
+
+        # Step 2: Enable QT AV configuration
+        if not self._endpoint.has_qt_config():
+            logger.info("USB: Enabling QT AV configuration...")
+            if not self._endpoint.enable_qt_config():
+                self._signal_error(
+                    "Cannot enable AV mode — WinUSB driver may be needed. "
+                    "Install via Zadig (https://zadig.akeo.ie/)"
+                )
+                return False
+
+            # Step 3: Wait for device to reconnect with AV endpoints
+            if not self._endpoint.wait_for_reenumeration(timeout=15.0):
+                self._signal_error("iPhone didn't reconnect after AV mode enable")
+                return False
+        else:
+            logger.info("USB: QT AV configuration already active")
+
+        # Step 4: Claim the AV bulk endpoints
+        if not self._endpoint.claim_av_endpoints():
+            self._signal_error(
+                "Cannot claim AV endpoints — another program may be using them, "
+                "or WinUSB driver is needed"
+            )
+            return False
+
+        logger.info("✅ USB: AV endpoints ready for streaming")
+        return True
+
+    def _protocol_loop(self) -> None:
+        """Run the Valeria protocol communication loop.
+
+        Continuously reads packets from the USB bulk IN endpoint,
+        routes them through the ValeriaSession protocol handler,
+        and sends responses via the bulk OUT endpoint.
+
+        Also manages:
+        - Handshake completion detection (PING → SYNC → start streaming)
+        - Periodic NEED packets to keep video flowing
+        - Connection health monitoring
+        """
+        import usb.core
+
+        read_buffer = bytearray()
+        cvrp_received = False
+        last_need_time = 0.0
+        last_data_time = time.monotonic()
+        need_interval = 1.0 / 30.0      # NEED every ~33ms (matches 30fps)
+        health_timeout = 10.0            # Declare dead if no data for 10s
+
+        logger.info("📡 Valeria protocol loop starting...")
+
+        while self._running:
+            # ── Read from USB ───────────────────────────────────────
+            try:
+                data = self._endpoint.read(size=65536, timeout=100)
+                if data:
+                    read_buffer.extend(data)
+                    last_data_time = time.monotonic()
+            except usb.core.USBTimeoutError:
+                # Normal — no data available right now
+                if self._streaming_started:
+                    silence = time.monotonic() - last_data_time
+                    if silence > health_timeout:
+                        logger.warning("No data from iPhone for %.0fs — connection lost", silence)
+                        self._signal_error("Connection lost — no data from iPhone")
+                        return
+                continue
+            except usb.core.USBError as e:
+                if self._running:
+                    logger.error("USB read error: %s", e)
+                    self._signal_error(f"USB error: {e}")
+                return
+
+            # ── Parse complete packets ──────────────────────────────
+            while len(read_buffer) >= 4:
+                # Peek at packet length (first 4 bytes, little-endian)
+                pkt_len = struct.unpack_from("<I", read_buffer, 0)[0]
+
+                # Sanity check — reject obviously invalid lengths
+                if pkt_len < 4 or pkt_len > 16 * 1024 * 1024:  # Max 16MB
+                    logger.warning(
+                        "Invalid packet length %d — flushing buffer (%d bytes)",
+                        pkt_len, len(read_buffer)
+                    )
+                    read_buffer.clear()
+                    break
+
+                # Wait for complete packet
+                if len(read_buffer) < pkt_len:
+                    break
+
+                # Extract and remove packet from buffer
+                pkt_bytes = bytes(read_buffer[:pkt_len])
+                del read_buffer[:pkt_len]
+
+                # Parse the packet
+                packet = read_packet(pkt_bytes)
+                if packet is None:
+                    logger.debug("Failed to parse packet (%d bytes)", pkt_len)
+                    continue
+
+                # Route through protocol handler
+                response = self._session.handle_packet(packet)
+
+                # Send response if the handler produced one
+                if response:
+                    try:
+                        self._endpoint.write(response)
+                    except usb.core.USBError as e:
+                        logger.error("Failed to send response: %s", e)
+
+                # ── Track handshake progress ────────────────────────
+                if packet.packet_type == PacketType.PING:
+                    logger.info("🏓 PING handshake complete")
+                    self._handshake_done.set()
+
+                elif packet.packet_type == PacketType.SYNC:
+                    if packet.subtype == Magic.CVRP:
+                        logger.info("📹 CVRP received — video format negotiated")
+                        cvrp_received = True
+
+                        # Initialize H.264 decoder
+                        # (SPS/PPS will come inline in the first IDR frame)
+                        if self._decoder and not self._decoder._initialized:
+                            self._decoder.initialize(codec_name="h264")
+
+                        # Start streaming after format negotiation
+                        if not self._streaming_started:
+                            self._start_streaming()
+
+                    elif packet.subtype == Magic.CWPA:
+                        logger.info("🔊 CWPA received — audio clock negotiated")
+
+                    elif packet.subtype == Magic.AFMT:
+                        logger.info("🎵 AFMT received — audio format accepted")
+
+            # ── Send NEED packets to keep video flowing ─────────────
+            if self._streaming_started:
+                now = time.monotonic()
+                if now - last_need_time >= need_interval:
+                    try:
+                        need_pkt = self._session.build_need_packet()
+                        self._endpoint.write(need_pkt)
+                        last_need_time = now
+                    except usb.core.USBError:
+                        pass  # Non-fatal — next one will go through
+
+    def _start_streaming(self) -> None:
+        """Send HPD1 + HPA1 commands to start video and audio streaming."""
+        if self._streaming_started:
+            return
+
+        logger.info("🚀 Sending start streaming commands (HPD1 + HPA1)...")
+
+        try:
+            packets = self._session.build_start_streaming_packets()
+            for pkt in packets:
+                self._endpoint.write(pkt)
+                time.sleep(0.01)  # Small delay between commands
+
+            self._streaming_started = True
+            logger.info("✅ Streaming started — receiving video frames")
+
+        except Exception as e:
+            logger.error("Failed to start streaming: %s", e)
+            self._signal_error(f"Failed to start streaming: {e}")
+
+    # ─── Frame/audio callbacks ──────────────────────────────────────
+
+    def _on_video_frame(self, video_frame: VideoFrame) -> None:
+        """Handle a video frame from ValeriaSession — decode and emit.
+
+        Called by ValeriaSession when a FEED packet arrives containing
+        H.264 data. Decodes to RGB pixels and emits as CapturedFrame.
+        """
+        if not self._decoder or not self._running:
+            return
+
+        # Decode H.264 NALUs to RGB numpy array
+        rgb_array = self._decoder.decode_frame(video_frame.data)
+        if rgb_array is None:
+            return  # Decoder buffering or decode error
+
+        height, width = rgb_array.shape[:2]
+
+        # Update FPS tracking
+        now = time.monotonic()
+        self._frame_times.append(now)
+        if len(self._frame_times) >= 2:
+            elapsed = self._frame_times[-1] - self._frame_times[0]
+            if elapsed > 0:
+                self.fps = (len(self._frame_times) - 1) / elapsed
+
+        # Emit as CapturedFrame for the renderer
+        self.frame_count += 1
+        frame = CapturedFrame(
+            pixels=rgb_array,
+            width=width,
+            height=height,
+            timestamp=now,
+            frame_number=self.frame_count,
+        )
+        self._emit_frame(frame)
+
+    def _on_audio_sample(self, audio_sample: AudioSample) -> None:
+        """Handle an audio sample from ValeriaSession — feed to speaker."""
+        if self._audio and self._running:
+            self._audio.feed(audio_sample.data)
+
+    # ─── Error handling ─────────────────────────────────────────────
+
+    def _signal_error(self, reason: str) -> None:
+        """Signal an error to the GUI and set init_error for start() to detect."""
+        logger.error("Valeria: %s", reason)
+        self._init_error = reason
+        self._handshake_done.set()  # Unblock start() if waiting
+
+        if self._on_capture_stopped:
+            self._on_capture_stopped(reason)
+
+    # ─── Cleanup ────────────────────────────────────────────────────
+
+    def _cleanup(self) -> None:
+        """Release all resources."""
+        if self._endpoint:
+            try:
+                self._endpoint.close()
+            except Exception:
+                pass
+            self._endpoint = None
+
+        if self._decoder:
+            try:
+                self._decoder.close()
+            except Exception:
+                pass
+            self._decoder = None
+
+        if self._audio:
+            try:
+                self._audio.stop()
+            except Exception:
+                pass
+            self._audio = None
+
+        self._session = None
+        logger.info("Valeria: Resources cleaned up")

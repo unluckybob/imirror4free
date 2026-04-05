@@ -40,11 +40,22 @@ cmd = [
     "--hidden-import", "PIL",
     "--hidden-import", "zeroconf",
     "--hidden-import", "ifaddr",
+    # USB and audio support
+    "--hidden-import", "usb",
+    "--hidden-import", "usb.core",
+    "--hidden-import", "usb.util",
+    "--hidden-import", "usb.backend.libusb1",
+    "--hidden-import", "libusb_package",
+    "--hidden-import", "sounddevice",
     # Collect all pymobiledevice3 resources, data files, and binaries
     "--collect-all", "pymobiledevice3",
     # Collect libusb binaries so USB device access works
     "--collect-binaries", "libusb_package",
     "--collect-binaries", "usb",
+    # Collect av (FFmpeg) binaries for video decoding
+    "--collect-binaries", "av",
+    # Collect sounddevice for audio playback
+    "--collect-binaries", "sounddevice",
     str(MAIN_SCRIPT),
 ]
 
