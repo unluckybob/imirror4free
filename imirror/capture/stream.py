@@ -354,6 +354,20 @@ class ValeriaStreamCapture(CaptureBackend):
                     except usb.core.USBError as e:
                         logger.error("Failed to send response: %s", e)
 
+                # After receiving a FEED packet, immediately send NEED
+                # to request the next frame (request-response pattern).
+                # This is more reliable than the timer alone and matches
+                # the protocol behavior of QuickTime/AnyMiro.
+                if (self._streaming_started
+                        and packet.packet_type == PacketType.ASYN
+                        and packet.subtype == Magic.FEED):
+                    try:
+                        need_pkt = self._session.build_need_packet()
+                        self._endpoint.write(need_pkt)
+                        last_need_time = time.monotonic()
+                    except usb.core.USBError:
+                        pass  # Timer fallback will cover this
+
                 # ── Track handshake progress ────────────────────────
                 if packet.packet_type == PacketType.PING:
                     logger.info("PING handshake complete")
@@ -363,9 +377,17 @@ class ValeriaStreamCapture(CaptureBackend):
                     if packet.subtype == Magic.CVRP:
                         logger.info("CVRP received — video format negotiated")
 
-                        # Initialize H.264 decoder
+                        # Initialize H.264 decoder with SPS/PPS from CVRP
                         if self._decoder and not self._decoder.is_initialized:
-                            self._decoder.initialize(codec_name="h264")
+                            extradata = self._session.get_decoder_extradata()
+                            self._decoder.initialize(
+                                codec_name="h264",
+                                extradata=extradata,
+                            )
+                            if extradata:
+                                logger.info("Decoder initialized with SPS/PPS extradata (%d bytes)", len(extradata))
+                            else:
+                                logger.warning("Decoder initialized WITHOUT SPS/PPS — may fail until keyframe")
 
                         # Start streaming after format negotiation
                         if not self._streaming_started:
@@ -435,7 +457,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 self.fps = (len(self._frame_times) - 1) / elapsed
 
         # Emit as CapturedFrame for the renderer
-        self.frame_count += 1
+        # Note: frame_count is incremented by _emit_frame(), not here
         frame = CapturedFrame(
             pixels=rgb_array,
             width=width,

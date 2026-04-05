@@ -86,7 +86,7 @@ cmd = [
     str(MAIN_SCRIPT),
 ]
 
-print(f"[BUILD] Building IMIRROR4FREE v0.2.0 (onedir)...")
+print(f"[BUILD] Building IMIRROR4FREE v0.3.0 (onedir)...")
 print(f"  Project root: {PROJECT_ROOT}")
 print(f"  Icon: {ICON_FILE}")
 print(f"  Main script: {MAIN_SCRIPT}")

@@ -75,10 +75,8 @@ def apply_args_to_config(args: argparse.Namespace) -> None:
     """Apply CLI arguments to the global config."""
     if args.backend == "screenshot":
         config.capture_backend = CaptureBackend.SCREENSHOT
-        config.auto_select_backend = False
     elif args.backend == "valeria":
-        config.capture_backend = CaptureBackend.VALERIA_STREAM
-        config.auto_select_backend = False
+        config.capture_backend = CaptureBackend.VALERIA
 
     if args.decoder == "software":
         config.decoder_type = DecoderType.SOFTWARE
@@ -121,7 +119,10 @@ def main() -> int:
 
     # Create and show main window
     window = MainWindow()
-    window.show()
+    if config.start_fullscreen:
+        window.showFullScreen()
+    else:
+        window.show()
 
     logger.info("Application started. Waiting for iPhone connection...")
 

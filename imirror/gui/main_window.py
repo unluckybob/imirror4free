@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
         self._current_device: Optional[iPhoneDevice] = None
         self._capture: Optional[CaptureBackendBase] = None
         self._is_mirroring = False
-        self._show_fps_overlay = False
+        self._show_fps_overlay = config.show_fps_overlay
 
         # Setup UI
         self._setup_window()
