@@ -68,8 +68,17 @@ class CaptureBackend(abc.ABC):
         """Register a callback for new frames."""
         self._on_frame = callback
 
+    def on_capture_stopped(self, callback: Callable[[str], None]) -> None:
+        """Register a callback for when capture stops unexpectedly."""
+        self._on_capture_stopped = callback
+
     def _emit_frame(self, frame: CapturedFrame) -> None:
         """Send a frame to the registered callback."""
         self.frame_count += 1
         if self._on_frame:
             self._on_frame(frame)
+
+    def _emit_capture_stopped(self, reason: str) -> None:
+        """Notify that capture stopped unexpectedly."""
+        if self._on_capture_stopped:
+            self._on_capture_stopped(reason)

@@ -1,1 +1,1 @@
-"""GPU-accelerated rendering layer."""
+"""OpenGL rendering pipeline."""

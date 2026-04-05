@@ -54,6 +54,7 @@ class MainWindow(QMainWindow):
         self._current_device: Optional[iPhoneDevice] = None
         self._capture: Optional[CaptureBackendBase] = None
         self._is_mirroring = False
+        self._show_fps_overlay = False
 
         # Setup UI
         self._setup_window()
@@ -77,11 +78,13 @@ class MainWindow(QMainWindow):
     def _setup_window(self) -> None:
         """Configure the main window."""
         self.setWindowTitle(f"{__app_name__}")
-        self.resize(config.default_width, config.default_height)
-        self.setMinimumSize(480, 320)
+        self.resize(config.default_window_width, config.default_window_height)
+        self.setMinimumSize(320, 480)
 
-        if config.start_fullscreen:
-            self.showFullScreen()
+        if config.always_on_top:
+            self.setWindowFlags(
+                self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
+            )
 
     def _setup_widgets(self) -> None:
         """Create and layout all widgets."""
@@ -110,7 +113,7 @@ class MainWindow(QMainWindow):
 
         # FPS overlay (floating on top of renderer)
         self._fps_overlay = FPSOverlay(self._renderer)
-        self._fps_overlay.setVisible(config.show_fps_overlay)
+        self._fps_overlay.setVisible(self._show_fps_overlay)
 
         self._stack.addWidget(self._mirror_container)
 
@@ -282,8 +285,10 @@ class MainWindow(QMainWindow):
         # Register frame callback
         self._capture.on_frame(self._on_frame_captured)
 
-        # Register capture-stopped callback for error recovery
-        self._capture._on_capture_stopped = lambda reason: self._capture_stopped_signal.emit(reason)
+        # Register capture-stopped callback for error recovery (via proper method)
+        self._capture.on_capture_stopped(
+            lambda reason: self._capture_stopped_signal.emit(reason)
+        )
 
         # Start capture
         success = self._capture.start(device.udid)
@@ -312,27 +317,43 @@ class MainWindow(QMainWindow):
         self._is_mirroring = False
 
     def _select_backend(self) -> Optional[CaptureBackendBase]:
-        """Select the best available capture backend."""
-        if config.auto_select_backend:
-            # Try Valeria first (best quality)
+        """Select the best available capture backend based on config."""
+        backend_pref = config.capture_backend
+
+        if backend_pref == CaptureBackend.AUTO:
+            # Try Valeria first (best quality), fall back to screenshots
             valeria = ValeriaStreamCapture()
             if valeria.is_available():
                 logger.info("Auto-selected: Valeria Stream backend")
                 return valeria
 
-            # Fall back to screenshots
             screenshot = ScreenshotCapture()
             if screenshot.is_available():
-                logger.info("Auto-selected: Screenshot backend")
+                logger.info("Auto-selected: Screenshot backend (Valeria unavailable)")
                 return screenshot
 
             return None
+
+        elif backend_pref == CaptureBackend.VALERIA:
+            return ValeriaStreamCapture()
+
+        elif backend_pref == CaptureBackend.SCREENSHOT:
+            return ScreenshotCapture()
+
         else:
-            # Use configured backend
-            if config.capture_backend == CaptureBackend.VALERIA_STREAM:
-                return ValeriaStreamCapture()
-            else:
-                return ScreenshotCapture()
+            # Unknown — try auto
+            logger.warning("Unknown backend preference: %s, using auto", backend_pref)
+            return self._select_backend_auto()
+
+    def _select_backend_auto(self) -> Optional[CaptureBackendBase]:
+        """Auto-select backend (helper for unknown config values)."""
+        valeria = ValeriaStreamCapture()
+        if valeria.is_available():
+            return valeria
+        screenshot = ScreenshotCapture()
+        if screenshot.is_available():
+            return screenshot
+        return None
 
     def _on_frame_captured(self, frame: CapturedFrame) -> None:
         """Called from capture thread when a new frame is ready."""
@@ -377,9 +398,8 @@ class MainWindow(QMainWindow):
 
         elif key == Qt.Key.Key_F3:
             # Toggle FPS overlay
-            visible = not self._fps_overlay.isVisible()
-            self._fps_overlay.setVisible(visible)
-            config.show_fps_overlay = visible
+            self._show_fps_overlay = not self._show_fps_overlay
+            self._fps_overlay.setVisible(self._show_fps_overlay)
 
         elif key == Qt.Key.Key_Escape:
             if self.isFullScreen():

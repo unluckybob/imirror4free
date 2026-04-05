@@ -149,9 +149,9 @@ class ScreenshotCapture(CaptureBackend):
                 if consecutive_errors >= max_errors:
                     logger.error("Too many consecutive errors — stopping capture")
                     self._running = False
-                    # Emit stop signal so UI can show error
-                    if self._on_capture_stopped:
-                        self._on_capture_stopped("Too many capture errors — device may have disconnected")
+                    self._emit_capture_stopped(
+                        "Too many capture errors — device may have disconnected"
+                    )
                     break
 
             # Frame rate limiting

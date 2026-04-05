@@ -8,6 +8,7 @@ Designed for minimal latency:
 - VSync-locked swap for tear-free display
 - Aspect-ratio preserving letterbox/pillarbox
 - Smooth resize handling
+- Cached quad vertices (only recalculated on aspect ratio or viewport change)
 """
 
 import logging
@@ -98,11 +99,17 @@ class GLRenderer(QOpenGLWidget):
         self._texture_width: int = 0
         self._texture_height: int = 0
 
+        # Quad vertex cache — only recalculate when viewport or aspect changes
+        self._cached_aspect: float = 0.0
+        self._cached_vp_w: int = 0
+        self._cached_vp_h: int = 0
+        self._vertices_dirty: bool = True
+
         # Performance
         self._render_count: int = 0
         self._last_render_time: float = 0
 
-        # Refresh timer
+        # Refresh timer — trigger repaint when new frames might be ready
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.update)
         self._timer.start(2)  # ~500Hz poll rate, VSync limits actual draws
@@ -165,13 +172,14 @@ class GLRenderer(QOpenGLWidget):
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
 
-        logger.info("✅ OpenGL renderer initialized")
+        logger.info("OpenGL renderer initialized")
 
     def resizeGL(self, width: int, height: int) -> None:
         """Handle window resize."""
         if not OPENGL_AVAILABLE:
             return
         glViewport(0, 0, width, height)
+        self._vertices_dirty = True  # Force vertex recalculation
 
     def paintGL(self) -> None:
         """Render the current frame."""
@@ -188,7 +196,7 @@ class GLRenderer(QOpenGLWidget):
             self._upload_texture()
             self._needs_upload = False
 
-        # Update quad vertices for current viewport and aspect ratio
+        # Update quad vertices only when aspect ratio or viewport changes
         self._update_quad_vertices()
 
         # Draw
@@ -245,6 +253,7 @@ class GLRenderer(QOpenGLWidget):
             self._texture_initialized = True
             self._texture_width = w
             self._texture_height = h
+            self._vertices_dirty = True  # Aspect ratio may have changed
             logger.debug("Texture (re)allocated: %dx%d", w, h)
         else:
             # Fast sub-image update (no reallocation needed)
@@ -256,7 +265,10 @@ class GLRenderer(QOpenGLWidget):
             )
 
     def _update_quad_vertices(self) -> None:
-        """Recalculate quad vertices for current aspect ratio and viewport."""
+        """Recalculate quad vertices only when aspect ratio or viewport changes.
+
+        Caches the result to avoid per-frame recalculation overhead.
+        """
         if self._frame_width == 0 or self._frame_height == 0:
             return
 
@@ -264,11 +276,24 @@ class GLRenderer(QOpenGLWidget):
         vp_w = self.width()
         vp_h = self.height()
 
+        # Skip if nothing changed
+        if (not self._vertices_dirty
+                and aspect == self._cached_aspect
+                and vp_w == self._cached_vp_w
+                and vp_h == self._cached_vp_h):
+            return
+
         vertices = get_fullscreen_quad_vertices(aspect, vp_w, vp_h)
         vertex_data = np.array(vertices, dtype=np.float32)
 
         glBindBuffer(GL_ARRAY_BUFFER, self._vbo)
         glBufferSubData(GL_ARRAY_BUFFER, 0, vertex_data.nbytes, vertex_data)
+
+        # Cache the values
+        self._cached_aspect = aspect
+        self._cached_vp_w = vp_w
+        self._cached_vp_h = vp_h
+        self._vertices_dirty = False
 
     def _create_shader_program(self, vert_src: str, frag_src: str) -> int:
         """Compile and link a shader program."""

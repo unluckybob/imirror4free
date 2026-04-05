@@ -47,6 +47,11 @@ class VideoDecoder:
         self._initialized = False
         self._frame_count = 0
 
+    @property
+    def is_initialized(self) -> bool:
+        """Whether the decoder has been successfully initialized."""
+        return self._initialized
+
     def initialize(self, codec_name: str = "h264",
                    width: int = 0, height: int = 0,
                    extradata: Optional[bytes] = None) -> bool:
@@ -91,7 +96,6 @@ class VideoDecoder:
             ctx = av.codec.CodecContext.create(codec)
 
             # Try to enable hardware acceleration
-            # Note: PyAV hardware acceleration support varies by version
             if hasattr(ctx, 'hwaccel'):
                 ctx.hwaccel = hw_type
 
@@ -106,7 +110,7 @@ class VideoDecoder:
             self._codec_context = ctx
             self._hw_accel = HardwareAccelStatus.AVAILABLE
             self._initialized = True
-            logger.info("✅ Hardware decoder initialized (%s, %s)", codec_name, hw_type)
+            logger.info("Hardware decoder initialized (%s, %s)", codec_name, hw_type)
             return True
 
         except Exception as e:
@@ -136,7 +140,7 @@ class VideoDecoder:
             ctx.open()
             self._codec_context = ctx
             self._initialized = True
-            logger.info("✅ Software decoder initialized (%s)", codec_name)
+            logger.info("Software decoder initialized (%s)", codec_name)
             return True
 
         except Exception as e:

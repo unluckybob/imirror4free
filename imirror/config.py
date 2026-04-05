@@ -1,71 +1,69 @@
 """
-Application configuration and constants.
+Application Configuration — All tunable settings.
+
+Centralizes every tunable value so nothing is hardcoded in
+implementation files. Settings are organized by subsystem.
 """
 
-from dataclasses import dataclass, field
 from enum import Enum
 
 
 class CaptureBackend(Enum):
-    """Available capture backends, ordered by quality."""
-    SCREENSHOT = "screenshot"       # Phase 1: DVT screenshot loop (~10-15 fps)
-    VALERIA_STREAM = "valeria"      # Phase 2: Valeria H.264 stream (30-60 fps)
+    """Which capture backend to use."""
+    AUTO = "auto"               # Try Valeria first, fall back to Screenshot
+    VALERIA = "valeria"         # Force Valeria streaming (30-60 FPS)
+    SCREENSHOT = "screenshot"   # Force screenshot capture (~10 FPS)
 
 
 class DecoderType(Enum):
     """Video decoder selection."""
-    SOFTWARE = "software"           # libavcodec software decode
-    HARDWARE_DXVA2 = "dxva2"        # Windows DXVA2 GPU decode
-    HARDWARE_D3D11 = "d3d11va"      # Windows D3D11 GPU decode
+    AUTO = "auto"
+    HARDWARE_DXVA2 = "dxva2"
+    HARDWARE_D3D11 = "d3d11va"
+    SOFTWARE = "software"
 
 
-@dataclass
-class AppConfig:
-    """Runtime configuration for IMIRROR4FREE."""
+class _Config:
+    """Global configuration singleton."""
 
-    # -- Window --
-    window_title: str = "IMIRROR4FREE"
-    default_width: int = 1280
-    default_height: int = 720
-    start_fullscreen: bool = False
+    def __init__(self):
+        # ── Capture backend ─────────────────────────────────────────
+        self.capture_backend = CaptureBackend.AUTO
 
-    # -- Capture --
-    capture_backend: CaptureBackend = CaptureBackend.VALERIA_STREAM
-    auto_select_backend: bool = True    # Auto-pick best available backend
+        # ── Screenshot backend (Phase 1) ────────────────────────────
+        self.screenshot_target_fps: int = 15
 
-    # -- Screenshot backend --
-    screenshot_target_fps: int = 15     # Target FPS for screenshot loop
-    screenshot_jpeg_quality: int = 95   # JPEG quality if transcoding
+        # ── Valeria stream backend (Phase 2) ────────────────────────
+        # USB bulk I/O tuning
+        self.usb_read_size: int = 65536         # Bytes per bulk read
+        self.usb_read_timeout_ms: int = 100     # Timeout per read (ms)
+        self.usb_write_timeout_ms: int = 500    # Timeout per write (ms)
 
-    # -- Valeria backend --
-    valeria_prefer_hevc: bool = True    # Prefer HEVC over H.264 if available
-    valeria_max_fps: int = 60           # Max FPS to request
+        # Protocol tuning
+        self.need_packet_interval: float = 0.033  # Send NEED every 33ms (~30fps)
 
-    # -- USB I/O (Valeria) --
-    usb_read_size: int = 65536          # Bulk read size in bytes (64KB optimal for USB 2.0 HS)
-    usb_read_timeout_ms: int = 100      # Bulk read timeout in milliseconds
-    usb_write_timeout_ms: int = 1000    # Bulk write timeout in milliseconds
-    usb_health_timeout_s: float = 10.0  # Declare connection dead after this many seconds of silence
-    need_packet_interval: float = 0.033 # Seconds between NEED packets (~30 per second)
+        # Connection health monitoring
+        self.usb_health_timeout_s: float = 10.0  # Seconds of silence = connection lost
 
-    # -- Decoder --
-    decoder_type: DecoderType = DecoderType.HARDWARE_DXVA2
-    decoder_fallback_to_software: bool = True
+        # ── Video decoder ───────────────────────────────────────────
+        self.decoder_type = DecoderType.AUTO
+        self.decoder_fallback_to_software: bool = True
 
-    # -- Renderer --
-    vsync: bool = True
-    show_fps_overlay: bool = False
-    render_interpolation: str = "linear"   # "nearest" or "linear"
+        # ── Audio ───────────────────────────────────────────────────
+        self.audio_enabled: bool = True
+        self.audio_sample_rate: int = 48000
+        self.audio_channels: int = 2
 
-    # -- Audio --
-    audio_enabled: bool = True
-    audio_sample_rate: int = 48000
-    audio_channels: int = 2
+        # ── Rendering ──────────────────────────────────────────────
+        self.vsync: bool = True
+        self.render_interpolation: str = "linear"   # "linear" or "nearest"
 
-    # -- Performance --
-    frame_queue_size: int = 3           # Max frames in decode→render queue
-    drop_late_frames: bool = True       # Drop frames that arrive too late
+        # ── GUI ─────────────────────────────────────────────────────
+        self.window_title: str = "IMIRROR4FREE"
+        self.default_window_width: int = 400
+        self.default_window_height: int = 870
+        self.always_on_top: bool = False
 
 
 # Global config instance
-config = AppConfig()
+config = _Config()
