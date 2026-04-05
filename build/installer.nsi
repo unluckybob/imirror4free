@@ -1,80 +1,53 @@
-; IMIRROR4FREE — NSIS Installer
-; Uses Python embeddable distribution (signed DLLs from python.org)
+; IMIRROR4FREE Installer (NSIS)
+; Installs official Python + app source - no PyInstaller
 
 !include "MUI2.nsh"
 
-Unicode True
-
 Name "IMIRROR4FREE"
 OutFile "..\dist\IMIRROR4FREE-Setup.exe"
-InstallDir "$PROGRAMFILES64\IMIRROR4FREE"
+InstallDir "$PROGRAMFILES\IMIRROR4FREE"
 RequestExecutionLevel admin
 
-; Modern UI
-!define MUI_ABORTWARNING
-!define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
-
-; Installer pages
-!insertmacro MUI_PAGE_WELCOME
+; Pages
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
-; Uninstaller pages
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "English"
 
-; ─── Install ──────────────────────────────────────────────
 Section "Install"
-  SetOutPath "$INSTDIR"
+    SetOutPath "$INSTDIR"
 
-  ; Copy all application files (python/, imirror/, run.py, debug.bat)
-  File /r "..\dist\IMIRROR4FREE\*.*"
+    ; Install all files recursively
+    File /r "..\dist\IMIRROR4FREE\*.*"
 
-  ; Desktop shortcut — pythonw.exe = no console window
-  SetOutPath "$INSTDIR"
-  CreateShortcut "$DESKTOP\IMIRROR4FREE.lnk" \
-    "$INSTDIR\python\pythonw.exe" \
-    '"$INSTDIR\run.py"' \
-    "$INSTDIR\python\pythonw.exe" 0
+    ; Remove Mark of the Web from all binaries
+    nsExec::ExecToLog 'powershell -ExecutionPolicy Bypass -Command "Get-ChildItem -Path $INSTDIR -Recurse -Include *.dll,*.pyd,*.exe | Unblock-File"'
 
-  ; Start Menu
-  CreateDirectory "$SMPROGRAMS\IMIRROR4FREE"
-  CreateShortcut "$SMPROGRAMS\IMIRROR4FREE\IMIRROR4FREE.lnk" \
-    "$INSTDIR\python\pythonw.exe" \
-    '"$INSTDIR\run.py"' \
-    "$INSTDIR\python\pythonw.exe" 0
-  CreateShortcut "$SMPROGRAMS\IMIRROR4FREE\Debug Mode.lnk" \
-    "$INSTDIR\debug.bat" \
-    "" \
-    "$INSTDIR\python\python.exe" 0
-  CreateShortcut "$SMPROGRAMS\IMIRROR4FREE\Uninstall.lnk" \
-    "$INSTDIR\uninstall.exe"
+    ; Desktop shortcut
+    CreateShortCut "$DESKTOP\IMIRROR4FREE.lnk" "$INSTDIR\IMIRROR4FREE.exe"
 
-  ; Uninstaller
-  WriteUninstaller "$INSTDIR\uninstall.exe"
+    ; Start Menu
+    CreateDirectory "$SMPROGRAMS\IMIRROR4FREE"
+    CreateShortCut "$SMPROGRAMS\IMIRROR4FREE\IMIRROR4FREE.lnk" "$INSTDIR\IMIRROR4FREE.exe"
+    CreateShortCut "$SMPROGRAMS\IMIRROR4FREE\Debug Mode.lnk" "$INSTDIR\debug.bat"
+    CreateShortCut "$SMPROGRAMS\IMIRROR4FREE\Uninstall.lnk" "$INSTDIR\uninstall.exe"
 
-  ; Add/Remove Programs registry
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" \
-    "DisplayName" "IMIRROR4FREE — iPhone Screen Mirroring"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" \
-    "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" \
-    "InstallLocation" "$INSTDIR"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" \
-    "Publisher" "IMIRROR4FREE"
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" \
-    "NoModify" 1
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" \
-    "NoRepair" 1
+    ; Uninstaller
+    WriteUninstaller "$INSTDIR\uninstall.exe"
+
+    ; Add/Remove Programs entry
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" "DisplayName" "IMIRROR4FREE"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" "UninstallString" '"$INSTDIR\uninstall.exe"'
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE" "InstallLocation" "$INSTDIR"
 SectionEnd
 
-; ─── Uninstall ────────────────────────────────────────────
 Section "Uninstall"
-  RMDir /r "$INSTDIR"
-  Delete "$DESKTOP\IMIRROR4FREE.lnk"
-  RMDir /r "$SMPROGRAMS\IMIRROR4FREE"
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE"
+    RMDir /r "$INSTDIR"
+    RMDir /r "$SMPROGRAMS\IMIRROR4FREE"
+    Delete "$DESKTOP\IMIRROR4FREE.lnk"
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\IMIRROR4FREE"
 SectionEnd
