@@ -10,6 +10,7 @@ This is the "it just works" backend — reliable, full native
 resolution, no special driver setup required.
 """
 
+import asyncio
 import io
 import logging
 import threading
@@ -19,13 +20,26 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
-from pymobiledevice3.lockdown import LockdownClient, create_using_usbmux
+from pymobiledevice3.lockdown import LockdownClient, create_using_usbmux as async_create_using_usbmux
 from pymobiledevice3.services.screenshot import ScreenshotService
 
 from imirror.capture.base import CaptureBackend, CapturedFrame
 from imirror.config import config
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async(coro):
+    """Run an async coroutine synchronously from a regular thread.
+
+    Creates a new event loop for each call to avoid conflicts
+    with Qt's event loop.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 class ScreenshotCapture(CaptureBackend):
@@ -64,10 +78,11 @@ class ScreenshotCapture(CaptureBackend):
             return True
 
         try:
-            self._lockdown = create_using_usbmux(serial=device_udid)
+            # pymobiledevice3's create_using_usbmux is async — run it properly
+            self._lockdown = _run_async(async_create_using_usbmux(serial=device_udid))
             logger.info("Screenshot backend: Connected to %s", device_udid[:8])
         except Exception as e:
-            logger.error("Failed to connect to device %s: %s", device_udid[:8], e)
+            logger.error("Failed to connect to device %s: %s", device_udid[:8], e, exc_info=True)
             return False
 
         self._running = True
@@ -77,7 +92,7 @@ class ScreenshotCapture(CaptureBackend):
             daemon=True,
         )
         self._thread.start()
-        logger.info("📸 Screenshot capture started (target: %d FPS)", config.screenshot_target_fps)
+        logger.info("Screenshot capture started (target: %d FPS)", config.screenshot_target_fps)
         return True
 
     def stop(self) -> None:
@@ -153,7 +168,7 @@ class ScreenshotCapture(CaptureBackend):
             )
 
             if self.frame_count == 0:
-                logger.info("📸 First frame: %dx%d", image.width, image.height)
+                logger.info("First frame captured: %dx%d", image.width, image.height)
 
             return frame
 
