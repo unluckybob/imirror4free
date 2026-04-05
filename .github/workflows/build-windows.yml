@@ -8,106 +8,109 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download Python 3.12 Embeddable
+      - name: Setup MSVC compiler
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Create output directory
+        run: mkdir dist\IMIRROR4FREE
+
+      - name: Download Python 3.12 Embeddable (signed by PSF)
         shell: pwsh
         run: |
-          $pyVersion = "3.12.7"
-          $url = "https://www.python.org/ftp/python/${pyVersion}/python-${pyVersion}-embed-amd64.zip"
-          Write-Host "Downloading Python ${pyVersion} embeddable package..."
+          $url = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip"
+          Write-Host "Downloading official Python embeddable from python.org..."
           Invoke-WebRequest -Uri $url -OutFile python-embed.zip
-          New-Item -ItemType Directory -Path dist\IMIRROR4FREE\python -Force | Out-Null
           Expand-Archive python-embed.zip -DestinationPath dist\IMIRROR4FREE\python
-          Write-Host "Extracted to dist\IMIRROR4FREE\python\"
+          Write-Host "Python DLLs are signed by Python Software Foundation - Windows will trust them"
 
-      - name: Configure Python and Install Pip
+      - name: Configure Python paths
         shell: pwsh
         run: |
-          $pythonDir = "dist\IMIRROR4FREE\python"
+          # Rewrite the ._pth file to enable pip and add our source code path
+          $pthContent = @"
+          python312.zip
+          .
+          ..
+          Lib\site-packages
+          import site
+          "@
+          Set-Content "dist\IMIRROR4FREE\python\python312._pth" $pthContent.Trim()
+          Get-Content "dist\IMIRROR4FREE\python\python312._pth"
 
-          # Create site-packages directory
-          New-Item -ItemType Directory -Path "$pythonDir\Lib\site-packages" -Force | Out-Null
-
-          # Configure ._pth file:
-          #   python312.zip  = stdlib
-          #   .              = python dir itself
-          #   ..             = parent dir (where imirror/ and run.py live)
-          #   Lib\site-packages = pip-installed packages
-          #   import site    = enable site-packages discovery
-          @(
-            "python312.zip",
-            ".",
-            "..",
-            "Lib\site-packages",
-            "import site"
-          ) | Set-Content "$pythonDir\python312._pth" -Encoding ASCII
-
-          Write-Host "python312._pth contents:"
-          Get-Content "$pythonDir\python312._pth"
-
-          # Install pip into the embeddable distribution
+      - name: Install pip
+        shell: pwsh
+        run: |
           Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile get-pip.py
-          & "$pythonDir\python.exe" get-pip.py --no-warn-script-location
+          & dist\IMIRROR4FREE\python\python.exe get-pip.py --no-warn-script-location
           if ($LASTEXITCODE -ne 0) { throw "Failed to install pip" }
-          Write-Host "Pip installed successfully."
 
-      - name: Install Dependencies
+      - name: Install dependencies
         shell: pwsh
         run: |
-          $python = "dist\IMIRROR4FREE\python\python.exe"
-
-          # Install setuptools first (not included in embeddable Python)
-          & $python -m pip install setuptools wheel --no-warn-script-location
-
-          # Install all requirements — prefer binary wheels to avoid compilation
-          & $python -m pip install -r requirements.txt --no-warn-script-location --prefer-binary
+          & dist\IMIRROR4FREE\python\python.exe -m pip install setuptools wheel --no-warn-script-location
+          & dist\IMIRROR4FREE\python\python.exe -m pip install --prefer-binary -r requirements.txt --no-warn-script-location
           if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies" }
 
-          Write-Host "`nInstalled packages:"
-          & $python -m pip list
-
-      - name: Bundle Application
+      - name: Copy app source code
         shell: pwsh
         run: |
-          # Copy our source code next to the python directory
-          Copy-Item -Path imirror -Destination dist\IMIRROR4FREE\imirror -Recurse
-          Copy-Item -Path run.py -Destination dist\IMIRROR4FREE\run.py
-          Copy-Item -Path build\debug.bat -Destination dist\IMIRROR4FREE\debug.bat
+          Copy-Item -Recurse imirror dist\IMIRROR4FREE\imirror
+          Write-Host "Source code copied to dist\IMIRROR4FREE\imirror\"
 
-          # Show final structure summary
-          Write-Host "`nBundle contents:"
-          Get-ChildItem dist\IMIRROR4FREE -Directory | ForEach-Object {
-            $size = (Get-ChildItem $_.FullName -Recurse -File | Measure-Object -Property Length -Sum).Sum
-            Write-Host "  $($_.Name)/ - $([math]::Round($size / 1MB, 1)) MB"
-          }
-          Get-ChildItem dist\IMIRROR4FREE -File | ForEach-Object {
-            Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1KB, 1)) KB"
-          }
-          $total = (Get-ChildItem dist\IMIRROR4FREE -Recurse -File | Measure-Object -Property Length -Sum).Sum
-          Write-Host "`nTotal bundle size: $([math]::Round($total / 1MB, 1)) MB"
+      - name: Compile native launcher
+        shell: pwsh
+        run: |
+          cl.exe /nologo /O2 /Fe:dist\IMIRROR4FREE\IMIRROR4FREE.exe build\launcher.c kernel32.lib
+          if ($LASTEXITCODE -ne 0) { throw "Failed to compile launcher" }
+          Write-Host "Launcher compiled: IMIRROR4FREE.exe"
+
+      - name: Create debug launcher
+        shell: pwsh
+        run: |
+          @"
+          @echo off
+          cd /d "%~dp0"
+          echo =============================================
+          echo   IMIRROR4FREE - Debug Mode
+          echo =============================================
+          echo.
+          python\python.exe -m imirror.main
+          echo.
+          echo =============================================
+          echo   App exited with code %ERRORLEVEL%
+          echo =============================================
+          echo.
+          pause
+          "@ | Set-Content -Path "dist\IMIRROR4FREE\debug.bat" -Encoding ASCII
+
+      - name: Show build contents
+        shell: pwsh
+        run: |
+          Write-Host "=== Build contents ==="
+          Get-ChildItem dist\IMIRROR4FREE -Depth 0 | Format-Table Name, Length
+          Write-Host ""
+          Write-Host "=== Python DLL signature check ==="
+          $sig = Get-AuthenticodeSignature "dist\IMIRROR4FREE\python\python312.dll"
+          Write-Host "python312.dll signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
 
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: choco install nsis -y
 
       - name: Build NSIS Installer
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\NSIS\makensis.exe" build\installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "NSIS build failed" }
-          $installer = Get-Item dist\IMIRROR4FREE-Setup.exe
-          Write-Host "Installer size: $([math]::Round($installer.Length / 1MB, 1)) MB"
 
       - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Setup
           path: dist\IMIRROR4FREE-Setup.exe
-          compression-level: 0
 
       - name: Upload Portable
         uses: actions/upload-artifact@v4
