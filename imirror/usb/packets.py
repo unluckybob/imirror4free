@@ -172,6 +172,37 @@ def read_packet(data: bytes) -> Optional[Packet]:
     )
 
 
+def read_packets_from_buffer(data: bytes) -> tuple[list[Packet], bytes]:
+    """Parse as many complete packets as possible from a byte buffer.
+
+    Returns:
+        Tuple of (list of parsed packets, remaining unparsed bytes).
+    """
+    packets = []
+    offset = 0
+
+    while offset < len(data) - 3:
+        remaining = data[offset:]
+        if len(remaining) < 4:
+            break
+
+        length = struct.unpack_from("<I", remaining, 0)[0]
+        if length < 4 or length > 10 * 1024 * 1024:  # sanity: max 10MB
+            # Corrupted length — skip 1 byte and try to re-sync
+            offset += 1
+            continue
+
+        if len(remaining) < length:
+            break  # Incomplete packet — wait for more data
+
+        pkt = read_packet(remaining[:length])
+        if pkt:
+            packets.append(pkt)
+        offset += length
+
+    return packets, data[offset:]
+
+
 # ─── Packet building ────────────────────────────────────────────────
 
 def build_ping() -> bytes:
@@ -445,7 +476,10 @@ def extract_sps_pps_from_cvrp(payload: bytes) -> tuple[Optional[bytes], Optional
     """Extract SPS and PPS NAL units from a CVRP packet's format description.
 
     The CVRP packet contains a CMFormatDescription which includes the
-    H.264 decoder configuration record (SPS/PPS).
+    H.264 decoder configuration record (avcC atom). This function tries
+    two strategies:
+    1. Parse the AVCC configuration record properly
+    2. Fall back to scanning for NAL type 7 (SPS) and 8 (PPS) in AVCC format
 
     Returns:
         Tuple of (sps_bytes, pps_bytes), either may be None if not found.
@@ -456,12 +490,24 @@ def extract_sps_pps_from_cvrp(payload: bytes) -> tuple[Optional[bytes], Optional
     # Look for FDSC (format description) marker
     fdsc_idx = payload.find(Magic.FDSC)
     if fdsc_idx < 0:
-        return (None, None)
+        # Try full payload if no FDSC marker
+        search_region = payload
+    else:
+        search_region = payload[fdsc_idx:]
 
-    # Scan for NAL units within the format description
-    search_region = payload[fdsc_idx:]
+    # Strategy 1: Try to find avcC configuration record
+    # The avcC record starts with version=1, profile, compat, level
+    # then has SPS count, SPS entries, PPS count, PPS entries
+    sps_found, pps_found = _try_parse_avcc_record(search_region)
+    if sps_found:
+        sps = sps_found
+    if pps_found:
+        pps = pps_found
 
-    # Look for SPS (NAL type 7) and PPS (NAL type 8) in AVCC format
+    if sps and pps:
+        return (sps, pps)
+
+    # Strategy 2: Scan for NAL units with valid SPS/PPS types
     pos = 0
     while pos < len(search_region) - 5:
         # Check for AVCC length-prefixed NALUs
@@ -494,6 +540,86 @@ def extract_sps_pps_from_cvrp(payload: bytes) -> tuple[Optional[bytes], Optional
     return (sps, pps)
 
 
+def _try_parse_avcc_record(data: bytes) -> tuple[Optional[bytes], Optional[bytes]]:
+    """Try to parse an AVCC decoder configuration record.
+
+    AVCC format:
+        [1: version=1][1: profile][1: compat][1: level]
+        [1: NALU length size - 1 (masked with 0x03)]
+        [1: SPS count (masked with 0x1F)]
+        For each SPS: [2: SPS length (BE)][SPS data]
+        [1: PPS count]
+        For each PPS: [2: PPS length (BE)][PPS data]
+    """
+    sps = None
+    pps = None
+
+    # Scan for avcC start: version byte = 1, followed by reasonable profile
+    for i in range(len(data) - 10):
+        if data[i] != 1:
+            continue
+
+        profile = data[i + 1]
+        # Valid H.264 profiles: Baseline(66), Main(77), High(100), etc.
+        if profile not in (66, 77, 88, 100, 110, 122, 244):
+            continue
+
+        compat = data[i + 2]
+        level = data[i + 3]
+
+        # Level should be reasonable (1.0 to 6.2 → 10 to 62)
+        if level < 10 or level > 62:
+            continue
+
+        # NALU length size
+        nalu_length_size = (data[i + 4] & 0x03) + 1
+        if nalu_length_size not in (1, 2, 4):
+            continue
+
+        # SPS count
+        sps_count = data[i + 5] & 0x1F
+        if sps_count < 1 or sps_count > 4:
+            continue
+
+        pos = i + 6
+        # Read SPS entries
+        for _ in range(sps_count):
+            if pos + 2 > len(data):
+                break
+            sps_len = struct.unpack_from(">H", data, pos)[0]
+            pos += 2
+            if sps_len < 4 or pos + sps_len > len(data):
+                break
+            # Verify it's actually an SPS (NAL type 7)
+            if (data[pos] & 0x1F) == 7:
+                sps = bytes(data[pos:pos + sps_len])
+            pos += sps_len
+
+        if pos >= len(data):
+            continue
+
+        # PPS count
+        pps_count = data[pos] if pos < len(data) else 0
+        pos += 1
+
+        for _ in range(pps_count):
+            if pos + 2 > len(data):
+                break
+            pps_len = struct.unpack_from(">H", data, pos)[0]
+            pos += 2
+            if pps_len < 4 or pos + pps_len > len(data):
+                break
+            # Verify it's actually a PPS (NAL type 8)
+            if (data[pos] & 0x1F) == 8:
+                pps = bytes(data[pos:pos + pps_len])
+            pos += pps_len
+
+        if sps or pps:
+            return (sps, pps)
+
+    return (None, None)
+
+
 # ─── PCM audio extraction from CMSampleBuffer ──────────────────────
 
 def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
@@ -501,16 +627,6 @@ def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
 
     EAT! packets wrap PCM audio in a CMSampleBuffer. The PCM data is
     the raw sample bytes after the buffer metadata.
-
-    The CMSampleBuffer structure for audio typically contains:
-    - Timing info (CMTime presentation timestamp)
-    - Format description reference
-    - Raw PCM sample data
-
-    Strategy:
-    1. Look for 'sbuf' marker and extract data after the header
-    2. Heuristic: find the largest contiguous region that looks like PCM
-       (aligned to sample frame size: channels * bytes_per_sample)
 
     Args:
         payload: Raw EAT! packet payload bytes.
@@ -524,8 +640,7 @@ def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
     # Strategy 1: Look for sbuf marker
     sbuf_idx = payload.find(Magic.SBUF)
     if sbuf_idx >= 0 and sbuf_idx + 8 < len(payload):
-        # Read the sbuf length (4 bytes before the magic, or 4 bytes after)
-        # The sbuf container: [4: length][4: "sbuf"][data...]
+        # Read the sbuf length
         if sbuf_idx >= 4:
             sbuf_len = struct.unpack_from("<I", payload, sbuf_idx - 4)[0]
             data_start = sbuf_idx + 4  # After "sbuf" magic
@@ -546,18 +661,13 @@ def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
             return bytes(raw[:aligned_len])
 
     # Strategy 2: Skip known headers and extract remaining data
-    # EAT! payload typically has ~64-128 bytes of metadata then PCM data
-    # Look for the point where structured data ends and raw samples begin
-    # Heuristic: find a block that's aligned to audio frame boundaries
-    min_pcm_offset = 32  # Metadata is at least this many bytes
+    min_pcm_offset = 32
     frame_size = 4  # stereo int16
 
     if len(payload) > min_pcm_offset + frame_size:
-        # Try progressively from the payload, looking for aligned data
-        # The PCM data is usually the largest portion of the packet
         raw = payload[min_pcm_offset:]
         aligned_len = (len(raw) // frame_size) * frame_size
-        if aligned_len >= frame_size * 64:  # At least 64 frames (~1.3ms at 48kHz)
+        if aligned_len >= frame_size * 64:
             return bytes(raw[:aligned_len])
 
     return None

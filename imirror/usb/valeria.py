@@ -21,6 +21,7 @@ import threading
 import time
 from typing import Optional, Callable
 from enum import Enum
+from dataclasses import dataclass, field
 
 from imirror.usb.packets import (
     Magic, PacketType, Packet, VideoFrame, AudioSample,
@@ -42,6 +43,69 @@ class HandshakeState(Enum):
     READY = "ready"                 # All negotiations complete, can start streaming
 
 
+@dataclass
+class SessionStats:
+    """Thread-safe session statistics."""
+    frames_received: int = 0
+    audio_samples_received: int = 0
+    bytes_received: int = 0
+    keyframes_received: int = 0
+    decode_errors: int = 0
+    last_frame_time: float = 0.0
+    session_start_time: float = 0.0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    @property
+    def uptime_seconds(self) -> float:
+        if self.session_start_time <= 0:
+            return 0.0
+        return time.monotonic() - self.session_start_time
+
+    @property
+    def average_fps(self) -> float:
+        uptime = self.uptime_seconds
+        if uptime <= 0:
+            return 0.0
+        return self.frames_received / uptime
+
+    @property
+    def bandwidth_mbps(self) -> float:
+        uptime = self.uptime_seconds
+        if uptime <= 0:
+            return 0.0
+        return (self.bytes_received * 8) / (uptime * 1_000_000)
+
+    def record_frame(self, size: int, is_keyframe: bool) -> None:
+        with self._lock:
+            self.frames_received += 1
+            self.bytes_received += size
+            self.last_frame_time = time.monotonic()
+            if is_keyframe:
+                self.keyframes_received += 1
+
+    def record_audio(self) -> None:
+        with self._lock:
+            self.audio_samples_received += 1
+
+    def record_decode_error(self) -> None:
+        with self._lock:
+            self.decode_errors += 1
+
+    def snapshot(self) -> dict:
+        """Return a snapshot of current stats for the UI."""
+        with self._lock:
+            return {
+                "frames": self.frames_received,
+                "keyframes": self.keyframes_received,
+                "audio_samples": self.audio_samples_received,
+                "bytes": self.bytes_received,
+                "decode_errors": self.decode_errors,
+                "uptime": self.uptime_seconds,
+                "avg_fps": self.average_fps,
+                "bandwidth_mbps": self.bandwidth_mbps,
+            }
+
+
 class ValeriaSession:
     """
     Manages a Valeria AV streaming session with an iPhone.
@@ -52,20 +116,6 @@ class ValeriaSession:
     - Dispatching video frames (FEED) and audio samples (EAT!)
     - Building start/stop streaming commands
     - Clean shutdown
-
-    Usage:
-        session = ValeriaSession()
-        session.on_video_frame(my_video_callback)
-        session.on_audio_sample(my_audio_callback)
-
-        # For each packet read from USB:
-        response = session.handle_packet(packet)
-        if response:
-            usb_endpoint.write(response)
-
-        # After CVRP received:
-        for pkt in session.build_start_streaming_packets():
-            usb_endpoint.write(pkt)
     """
 
     def __init__(self):
@@ -99,10 +149,8 @@ class ValeriaSession:
         self._on_video_frame: Optional[Callable[[VideoFrame], None]] = None
         self._on_audio_sample: Optional[Callable[[AudioSample], None]] = None
 
-        # Stats
-        self.frames_received = 0
-        self.audio_samples_received = 0
-        self.bytes_received = 0
+        # Thread-safe stats
+        self.stats = SessionStats()
 
     # ─── Callback registration ──────────────────────────────────────
 
@@ -118,17 +166,14 @@ class ValeriaSession:
 
     @property
     def handshake_state(self) -> HandshakeState:
-        """Current handshake progress."""
         return self._handshake_state
 
     @property
     def is_ready_to_stream(self) -> bool:
-        """Whether the handshake is complete enough to start streaming."""
         return self._cvrp_received
 
     @property
     def video_format(self) -> dict:
-        """Video format info from CVRP negotiation."""
         return {
             "width": self._video_width,
             "height": self._video_height,
@@ -136,31 +181,28 @@ class ValeriaSession:
             "has_pps": self._pps is not None,
         }
 
+    @property
+    def is_healthy(self) -> bool:
+        """Check if we've received data recently."""
+        if self.stats.last_frame_time <= 0:
+            return True  # Haven't started streaming yet
+        return (time.monotonic() - self.stats.last_frame_time) < 10.0
+
     # ─── Clock management ───────────────────────────────────────────
 
     def _generate_clock_ref(self) -> bytes:
-        """Generate a unique 8-byte clock reference."""
         with self._clock_lock:
             self._clock_counter += 1
             ref = struct.pack("<Q", 0x7F00A66CE20CB000 + self._clock_counter * 0x10)
             return ref
 
     def _get_current_cmtime_ns(self) -> int:
-        """Get current time in nanoseconds since session start."""
         return time.monotonic_ns() - self._start_time_ns
 
     # ─── Protocol handlers ──────────────────────────────────────────
 
     def handle_packet(self, packet: Packet) -> Optional[bytes]:
-        """Process an incoming packet and return response bytes (if needed).
-
-        This is the main entry point for protocol handling. For each packet
-        read from the USB bulk IN endpoint, call this method. If a response
-        is returned, write it to the USB bulk OUT endpoint.
-
-        Returns:
-            Response bytes to send back, or None if no response needed.
-        """
+        """Process an incoming packet and return response bytes (if needed)."""
         if packet.packet_type == PacketType.PING:
             return self._handle_ping(packet)
         elif packet.packet_type == PacketType.SYNC:
@@ -171,14 +213,13 @@ class ValeriaSession:
         return None
 
     def _handle_ping(self, packet: Packet) -> bytes:
-        """Respond to PING with our own PING."""
         logger.info("PING received — sending PING response")
         self._start_time_ns = time.monotonic_ns()
+        self.stats.session_start_time = time.monotonic()
         self._handshake_state = HandshakeState.PING_DONE
         return build_ping()
 
     def _handle_sync(self, packet: Packet) -> Optional[bytes]:
-        """Route SYNC packets to the appropriate handler."""
         subtype = packet.subtype
         corr_id = packet.correlation_id
 
@@ -186,7 +227,6 @@ class ValeriaSession:
             logger.warning("SYNC packet without correlation ID")
             return None
 
-        # Update handshake state
         if self._handshake_state == HandshakeState.PING_DONE:
             self._handshake_state = HandshakeState.NEGOTIATING
 
@@ -211,7 +251,6 @@ class ValeriaSession:
             return None
 
     def _handle_cwpa(self, packet: Packet, corr_id: bytes) -> bytes:
-        """CWPA — Create audio clock. Device sends its audio clock ref, we reply with ours."""
         if len(packet.payload) >= 16:
             self._device_audio_clock_ref = packet.payload[8:16]
         else:
@@ -227,13 +266,11 @@ class ValeriaSession:
         return build_rply_with_clock(corr_id, 0, self._local_audio_clock_ref)
 
     def _handle_afmt(self, packet: Packet, corr_id: bytes) -> bytes:
-        """AFMT — Audio format description. Reply with zero error."""
         self._afmt_received = True
         logger.info("AFMT: Audio format received (48kHz LPCM)")
         return build_rply_with_dict_error(corr_id, error=0)
 
     def _handle_cvrp(self, packet: Packet, corr_id: bytes) -> bytes:
-        """CVRP — Create video clock. Contains H.264 format description with SPS/PPS."""
         if len(packet.payload) >= 16:
             self._device_video_clock_ref = packet.payload[8:16]
 
@@ -244,27 +281,28 @@ class ValeriaSession:
                      self._device_video_clock_ref.hex(),
                      self._local_video_clock_ref.hex())
 
-        # Try to extract SPS/PPS from the format description
+        # Extract SPS/PPS from the format description
         sps, pps = extract_sps_pps_from_cvrp(packet.payload)
         if sps:
             self._sps = sps
+            logger.info("SPS extracted: %d bytes (profile=%d, level=%d)",
+                       len(sps), sps[1] if len(sps) > 1 else 0,
+                       sps[3] if len(sps) > 3 else 0)
         if pps:
             self._pps = pps
+            logger.info("PPS extracted: %d bytes", len(pps))
 
-        # Mark handshake as ready
         self._handshake_state = HandshakeState.READY
         logger.info("Handshake complete — ready to stream")
 
         return build_rply_with_clock(corr_id, 0, self._local_video_clock_ref)
 
     def _handle_clok(self, packet: Packet, corr_id: bytes) -> bytes:
-        """CLOK — Create a new clock. Reply with our clock ref."""
         self._local_clock_ref = self._generate_clock_ref()
         logger.debug("CLOK: Created clock %s", self._local_clock_ref.hex())
         return build_rply_with_clock(corr_id, 0, self._local_clock_ref)
 
     def _handle_time(self, packet: Packet, corr_id: bytes) -> bytes:
-        """TIME — Send current CMTime for our clock."""
         current_ns = self._get_current_cmtime_ns()
         cmtime = build_cmtime(current_ns)
         logger.debug("TIME: Sending %d ns", current_ns)
@@ -272,22 +310,18 @@ class ValeriaSession:
         return build_rply(corr_id, payload)
 
     def _handle_skew(self, packet: Packet, corr_id: bytes) -> bytes:
-        """SKEW — Report clock skew. We report 48000.0 (perfectly aligned)."""
         logger.debug("SKEW: Reporting 48000.0 (aligned)")
         payload = struct.pack("<Id", 0, 48000.0)
         return build_rply(corr_id, payload)
 
     def _handle_og(self, packet: Packet, corr_id: bytes) -> bytes:
-        """OG — Unknown purpose. Reply with 8 zero bytes."""
         return build_rply(corr_id, b"\x00" * 8)
 
     def _handle_stop(self, packet: Packet, corr_id: bytes) -> bytes:
-        """STOP — Stop our clock. Reply with 8 zero bytes."""
         logger.info("STOP: Stopping clock")
         return build_rply(corr_id, b"\x00" * 8)
 
     def _handle_asyn(self, packet: Packet) -> None:
-        """Handle ASYN packets (video frames, audio samples, properties)."""
         subtype = packet.subtype
 
         if subtype == Magic.FEED:
@@ -306,34 +340,29 @@ class ValeriaSession:
             logger.debug("RELS: Clock released")
 
     def _handle_feed(self, packet: Packet) -> None:
-        """FEED — H.264 video data in a CMSampleBuffer."""
-        self.frames_received += 1
-        self.bytes_received += len(packet.payload)
-
         h264_data = extract_h264_from_feed(packet.payload)
         if h264_data and self._on_video_frame:
             # Detect keyframes by checking for IDR NAL type (5)
             is_keyframe = False
             if len(h264_data) > 4:
-                for i in range(len(h264_data) - 4):
+                for i in range(min(len(h264_data) - 4, 256)):  # Only scan first 256 bytes
                     if h264_data[i:i+4] == b"\x00\x00\x00\x01":
                         nal_type = h264_data[i+4] & 0x1F if i + 4 < len(h264_data) else 0
                         if nal_type == 5:  # IDR
                             is_keyframe = True
                             break
 
-            # Prepend SPS/PPS to keyframes for decoder robustness.
-            # The decoder needs SPS/PPS to initialize properly. While we
-            # pass them as extradata at init, some decoders also need them
-            # inline — especially after mid-stream errors or late joins.
+            # Prepend SPS/PPS to keyframes for decoder robustness
             if is_keyframe and self._sps and self._pps:
                 sps_pps = (
                     b"\x00\x00\x00\x01" + self._sps
                     + b"\x00\x00\x00\x01" + self._pps
                 )
-                # Only prepend if not already present in the data
                 if self._sps not in h264_data[:128]:
                     h264_data = sps_pps + h264_data
+
+            # Record stats
+            self.stats.record_frame(len(h264_data), is_keyframe)
 
             frame = VideoFrame(
                 data=h264_data,
@@ -345,17 +374,10 @@ class ValeriaSession:
             self._on_video_frame(frame)
 
     def _handle_eat(self, packet: Packet) -> None:
-        """EAT! — PCM audio data in a CMSampleBuffer.
-
-        Extracts the raw PCM audio from the CMSampleBuffer wrapper
-        before passing to the audio callback.
-        """
-        self.audio_samples_received += 1
-
         if self._on_audio_sample:
-            # Extract PCM data from CMSampleBuffer wrapper
             pcm_data = extract_pcm_from_eat(packet.payload)
             if pcm_data:
+                self.stats.record_audio()
                 sample = AudioSample(
                     data=pcm_data,
                     timestamp_ns=self._get_current_cmtime_ns(),
@@ -365,26 +387,18 @@ class ValeriaSession:
     # ─── Session control ────────────────────────────────────────────
 
     def build_start_streaming_packets(self) -> list[bytes]:
-        """Build the packets needed to start AV streaming after handshake.
-
-        Call this after receiving CVRP to begin the video/audio stream.
-        Returns a list of packets to send in order.
-        """
         packets = []
         packets.append(build_asyn_hpd1())
         if self._device_audio_clock_ref != b"\x00" * 8:
             packets.append(build_asyn_hpa1(self._device_audio_clock_ref))
-        # Start sending NEED packets
         if self._device_video_clock_ref != b"\x00" * 8:
             packets.append(build_asyn_need(self._device_video_clock_ref))
         return packets
 
     def build_need_packet(self) -> bytes:
-        """Build a NEED packet to request more video frames."""
         return build_asyn_need(self._device_video_clock_ref)
 
     def build_stop_streaming_packets(self) -> list[bytes]:
-        """Build packets to cleanly stop streaming."""
         packets = []
         if self._device_audio_clock_ref != b"\x00" * 8:
             packets.append(build_asyn_hpa0(self._device_audio_clock_ref))
@@ -392,15 +406,23 @@ class ValeriaSession:
         return packets
 
     def get_decoder_extradata(self) -> Optional[bytes]:
-        """Build decoder extradata (SPS + PPS in Annex B format).
-
-        Returns Annex B formatted SPS/PPS bytes for initializing the
-        H.264 decoder, or None if SPS/PPS weren't found in CVRP.
-        """
         if not self._sps or not self._pps:
             return None
-
         return (
             b"\x00\x00\x00\x01" + self._sps +
             b"\x00\x00\x00\x01" + self._pps
         )
+
+    def reset(self) -> None:
+        """Reset the session for a fresh connection."""
+        self._handshake_state = HandshakeState.WAITING_PING
+        self._cwpa_received = False
+        self._afmt_received = False
+        self._cvrp_received = False
+        self._device_audio_clock_ref = b"\x00" * 8
+        self._device_video_clock_ref = b"\x00" * 8
+        self._sps = None
+        self._pps = None
+        self._clock_counter = 0
+        self.stats = SessionStats()
+        logger.info("Session reset")

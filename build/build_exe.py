@@ -2,7 +2,7 @@
 PyInstaller Build Script for IMIRROR4FREE.
 
 Creates a single-file Windows executable with all dependencies bundled.
-Includes the mirror driver files for one-click installation.
+Includes the mirror driver installer for one-click setup.
 
 Usage:
     python build/build_exe.py
@@ -48,8 +48,9 @@ def build():
         "--hidden-import=sounddevice",
         "--hidden-import=numpy",
 
-        # Phase 2: Include driver installer module
+        # Phase 2+3: Include all modules
         "--hidden-import=imirror.usb.driver_installer",
+        "--hidden-import=imirror.capture.recording",
         "--hidden-import=ctypes",
         "--hidden-import=ctypes.wintypes",
 
@@ -66,7 +67,7 @@ def build():
     ]
 
     print("=" * 60)
-    print("Building IMIRROR4FREE v0.4.0")
+    print("Building IMIRROR4FREE v0.5.0")
     print("=" * 60)
 
     PyInstaller.__main__.run(args)
