@@ -18,9 +18,6 @@ RequestExecutionLevel admin
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\python\pythonw.exe"
-!define MUI_FINISHPAGE_RUN_PARAMETERS '"$INSTDIR\run.py"'
-!define MUI_FINISHPAGE_RUN_TEXT "Launch IMIRROR4FREE"
 !insertmacro MUI_PAGE_FINISH
 
 ; Uninstaller pages
