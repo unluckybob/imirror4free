@@ -107,7 +107,7 @@ class VideoFrame:
 @dataclass
 class AudioSample:
     """Decoded audio from an EAT! packet."""
-    data: bytes             # Raw PCM audio data
+    data: bytes             # Raw PCM audio data (extracted from CMSampleBuffer)
     timestamp_ns: int       # Presentation timestamp
     sample_rate: int = 48000
     channels: int = 2
@@ -160,7 +160,7 @@ def read_packet(data: bytes) -> Optional[Packet]:
 
     ptype = _MAGIC_TO_TYPE.get(magic)
     if ptype is None:
-        # Unrecognized magic — don't silently misroute as SYNC
+        # Unrecognized magic — don't silently misroute
         return None
 
     return Packet(
@@ -492,3 +492,72 @@ def extract_sps_pps_from_cvrp(payload: bytes) -> tuple[Optional[bytes], Optional
         logger.info("Found PPS (%d bytes)", len(pps))
 
     return (sps, pps)
+
+
+# ─── PCM audio extraction from CMSampleBuffer ──────────────────────
+
+def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
+    """Extract raw PCM audio data from an EAT! packet's CMSampleBuffer.
+
+    EAT! packets wrap PCM audio in a CMSampleBuffer. The PCM data is
+    the raw sample bytes after the buffer metadata.
+
+    The CMSampleBuffer structure for audio typically contains:
+    - Timing info (CMTime presentation timestamp)
+    - Format description reference
+    - Raw PCM sample data
+
+    Strategy:
+    1. Look for 'sbuf' marker and extract data after the header
+    2. Heuristic: find the largest contiguous region that looks like PCM
+       (aligned to sample frame size: channels * bytes_per_sample)
+
+    Args:
+        payload: Raw EAT! packet payload bytes.
+
+    Returns:
+        Raw PCM audio bytes (int16 stereo), or None if extraction failed.
+    """
+    if len(payload) < 16:
+        return None
+
+    # Strategy 1: Look for sbuf marker
+    sbuf_idx = payload.find(Magic.SBUF)
+    if sbuf_idx >= 0 and sbuf_idx + 8 < len(payload):
+        # Read the sbuf length (4 bytes before the magic, or 4 bytes after)
+        # The sbuf container: [4: length][4: "sbuf"][data...]
+        if sbuf_idx >= 4:
+            sbuf_len = struct.unpack_from("<I", payload, sbuf_idx - 4)[0]
+            data_start = sbuf_idx + 4  # After "sbuf" magic
+            data_end = sbuf_idx - 4 + sbuf_len
+            if data_end <= len(payload) and data_end > data_start:
+                pcm = payload[data_start:data_end]
+                # Ensure alignment to stereo int16 frame size (4 bytes)
+                frame_size = 4  # 2 channels * 2 bytes per sample (int16)
+                aligned_len = (len(pcm) // frame_size) * frame_size
+                if aligned_len > 0:
+                    return bytes(pcm[:aligned_len])
+
+        # Fallback: take everything after sbuf magic
+        raw = payload[sbuf_idx + 4:]
+        frame_size = 4
+        aligned_len = (len(raw) // frame_size) * frame_size
+        if aligned_len > 0:
+            return bytes(raw[:aligned_len])
+
+    # Strategy 2: Skip known headers and extract remaining data
+    # EAT! payload typically has ~64-128 bytes of metadata then PCM data
+    # Look for the point where structured data ends and raw samples begin
+    # Heuristic: find a block that's aligned to audio frame boundaries
+    min_pcm_offset = 32  # Metadata is at least this many bytes
+    frame_size = 4  # stereo int16
+
+    if len(payload) > min_pcm_offset + frame_size:
+        # Try progressively from the payload, looking for aligned data
+        # The PCM data is usually the largest portion of the packet
+        raw = payload[min_pcm_offset:]
+        aligned_len = (len(raw) // frame_size) * frame_size
+        if aligned_len >= frame_size * 64:  # At least 64 frames (~1.3ms at 48kHz)
+            return bytes(raw[:aligned_len])
+
+    return None

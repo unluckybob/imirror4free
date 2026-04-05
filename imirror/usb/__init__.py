@@ -1,1 +1,1 @@
-"""USB communication layer — device detection and protocol handling."""
+"""USB communication and Valeria protocol."""

@@ -103,7 +103,6 @@ class ValeriaStreamCapture(CaptureBackend):
                 return False
 
             # Device found — Valeria is potentially available
-            # (QT config will be enabled in start())
             if endpoint.has_qt_config():
                 logger.info("Valeria: QT AV configuration already active!")
             else:
@@ -132,7 +131,7 @@ class ValeriaStreamCapture(CaptureBackend):
         if self._running:
             return True
 
-        logger.info("🎬 Starting Valeria stream for device %s...", device_udid)
+        logger.info("Starting Valeria stream for device %s...", device_udid)
 
         self._running = True
         self._streaming_started = False
@@ -266,7 +265,7 @@ class ValeriaStreamCapture(CaptureBackend):
             )
             return False
 
-        logger.info("✅ USB: AV endpoints ready for streaming")
+        logger.info("USB: AV endpoints ready for streaming")
         return True
 
     def _protocol_loop(self) -> None:
@@ -284,18 +283,21 @@ class ValeriaStreamCapture(CaptureBackend):
         import usb.core
 
         read_buffer = bytearray()
-        cvrp_received = False
         last_need_time = 0.0
         last_data_time = time.monotonic()
-        need_interval = 1.0 / 30.0      # NEED every ~33ms (matches 30fps)
-        health_timeout = 10.0            # Declare dead if no data for 10s
 
-        logger.info("📡 Valeria protocol loop starting...")
+        # Use config values instead of hardcoded constants
+        read_size = config.usb_read_size
+        read_timeout = config.usb_read_timeout_ms
+        need_interval = config.need_packet_interval
+        health_timeout = config.usb_health_timeout_s
+
+        logger.info("Valeria protocol loop starting...")
 
         while self._running:
             # ── Read from USB ───────────────────────────────────────
             try:
-                data = self._endpoint.read(size=65536, timeout=100)
+                data = self._endpoint.read(size=read_size, timeout=read_timeout)
                 if data:
                     read_buffer.extend(data)
                     last_data_time = time.monotonic()
@@ -354,17 +356,15 @@ class ValeriaStreamCapture(CaptureBackend):
 
                 # ── Track handshake progress ────────────────────────
                 if packet.packet_type == PacketType.PING:
-                    logger.info("🏓 PING handshake complete")
+                    logger.info("PING handshake complete")
                     self._handshake_done.set()
 
                 elif packet.packet_type == PacketType.SYNC:
                     if packet.subtype == Magic.CVRP:
-                        logger.info("📹 CVRP received — video format negotiated")
-                        cvrp_received = True
+                        logger.info("CVRP received — video format negotiated")
 
                         # Initialize H.264 decoder
-                        # (SPS/PPS will come inline in the first IDR frame)
-                        if self._decoder and not self._decoder._initialized:
+                        if self._decoder and not self._decoder.is_initialized:
                             self._decoder.initialize(codec_name="h264")
 
                         # Start streaming after format negotiation
@@ -372,10 +372,10 @@ class ValeriaStreamCapture(CaptureBackend):
                             self._start_streaming()
 
                     elif packet.subtype == Magic.CWPA:
-                        logger.info("🔊 CWPA received — audio clock negotiated")
+                        logger.info("CWPA received — audio clock negotiated")
 
                     elif packet.subtype == Magic.AFMT:
-                        logger.info("🎵 AFMT received — audio format accepted")
+                        logger.info("AFMT received — audio format accepted")
 
             # ── Send NEED packets to keep video flowing ─────────────
             if self._streaming_started:
@@ -393,7 +393,7 @@ class ValeriaStreamCapture(CaptureBackend):
         if self._streaming_started:
             return
 
-        logger.info("🚀 Sending start streaming commands (HPD1 + HPA1)...")
+        logger.info("Sending start streaming commands (HPD1 + HPA1)...")
 
         try:
             packets = self._session.build_start_streaming_packets()
@@ -402,7 +402,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 time.sleep(0.01)  # Small delay between commands
 
             self._streaming_started = True
-            logger.info("✅ Streaming started — receiving video frames")
+            logger.info("Streaming started — receiving video frames")
 
         except Exception as e:
             logger.error("Failed to start streaming: %s", e)
@@ -457,9 +457,7 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.error("Valeria: %s", reason)
         self._init_error = reason
         self._handshake_done.set()  # Unblock start() if waiting
-
-        if self._on_capture_stopped:
-            self._on_capture_stopped(reason)
+        self._emit_capture_stopped(reason)
 
     # ─── Cleanup ────────────────────────────────────────────────────
 

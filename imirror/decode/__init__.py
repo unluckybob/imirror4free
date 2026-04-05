@@ -1,1 +1,1 @@
-"""Video and audio decode layer."""
+"""Video and audio decoding."""

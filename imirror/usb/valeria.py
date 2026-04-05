@@ -1,23 +1,16 @@
 """
-Valeria Protocol — Apple's USB AV Streaming Protocol.
+Valeria Protocol Session Handler.
 
-This is the Phase 2 capture backend that communicates directly with the iPhone
-over USB bulk endpoints to receive H.264 video and PCM audio streams.
+Manages the Valeria protocol state machine for AV streaming.
+This is a pure protocol handler — it receives parsed packets and
+produces response bytes. USB I/O is handled by endpoint.py and
+the streaming thread in stream.py.
 
 Protocol flow:
-1. Send USB control request to enable hidden QT configuration
-2. iPhone disconnects and reconnects with additional USB endpoints
-3. Claim the AV bulk endpoints
-4. Perform PING handshake
-5. Handle SYNC messages (CWPA, AFMT, CVRP, CLOK, TIME, SKEW)
-6. Send ASYN HPD1/HPA1 to start streaming
-7. Receive FEED (video) and EAT! (audio) packets
-8. Send NEED packets to keep video flowing
-
-Windows notes:
-- Requires iTunes installed (Apple Mobile Device Support provides usbmuxd)
-- May require WinUSB driver via Zadig for raw USB access
-- The hidden QT config adds 2 extra bulk endpoints for AV data
+1. PING handshake
+2. SYNC negotiations (CWPA, AFMT, CVRP, CLOK, TIME, SKEW)
+3. Build start/stop streaming commands (HPD1/HPA1/HPD0/HPA0)
+4. Route FEED (video) and EAT! (audio) to callbacks
 
 Reference: https://github.com/danielpaulus/quicktime_video_hack
 """
@@ -31,20 +24,14 @@ from enum import Enum
 
 from imirror.usb.packets import (
     Magic, PacketType, Packet, VideoFrame, AudioSample,
-    read_packet, build_ping, build_rply_with_clock,
+    build_ping, build_rply, build_rply_with_clock,
     build_rply_with_dict_error, build_asyn_need,
     build_asyn_hpd1, build_asyn_hpa1, build_asyn_hpd0,
     build_asyn_hpa0, build_cmtime, extract_h264_from_feed,
-    extract_sps_pps_from_cvrp,
+    extract_pcm_from_eat, extract_sps_pps_from_cvrp,
 )
 
 logger = logging.getLogger(__name__)
-
-# USB constants for the Valeria protocol
-APPLE_VENDOR_ID = 0x05AC
-QT_CONFIG_CONTROL_REQUEST = 0x52
-QT_CONFIG_SUBCLASS = 0x2A
-USBMUX_SUBCLASS = 0xFE
 
 
 class HandshakeState(Enum):
@@ -82,9 +69,6 @@ class ValeriaSession:
     """
 
     def __init__(self):
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-
         # Handshake state tracking
         self._handshake_state = HandshakeState.WAITING_PING
         self._cwpa_received = False
@@ -117,6 +101,7 @@ class ValeriaSession:
 
         # Stats
         self.frames_received = 0
+        self.audio_samples_received = 0
         self.bytes_received = 0
 
     # ─── Callback registration ──────────────────────────────────────
@@ -157,7 +142,6 @@ class ValeriaSession:
         """Generate a unique 8-byte clock reference."""
         with self._clock_lock:
             self._clock_counter += 1
-            # Use a combination of counter and memory-like address
             ref = struct.pack("<Q", 0x7F00A66CE20CB000 + self._clock_counter * 0x10)
             return ref
 
@@ -188,7 +172,7 @@ class ValeriaSession:
 
     def _handle_ping(self, packet: Packet) -> bytes:
         """Respond to PING with our own PING."""
-        logger.info("🏓 PING received — sending PING response")
+        logger.info("PING received — sending PING response")
         self._start_time_ns = time.monotonic_ns()
         self._handshake_state = HandshakeState.PING_DONE
         return build_ping()
@@ -228,7 +212,6 @@ class ValeriaSession:
 
     def _handle_cwpa(self, packet: Packet, corr_id: bytes) -> bytes:
         """CWPA — Create audio clock. Device sends its audio clock ref, we reply with ours."""
-        # Extract device audio clock ref (last 8 bytes of payload after corr_id)
         if len(packet.payload) >= 16:
             self._device_audio_clock_ref = packet.payload[8:16]
         else:
@@ -237,7 +220,7 @@ class ValeriaSession:
         self._local_audio_clock_ref = self._generate_clock_ref()
         self._cwpa_received = True
 
-        logger.info("🔊 CWPA: Device audio clock=%s, our clock=%s",
+        logger.info("CWPA: Device audio clock=%s, our clock=%s",
                      self._device_audio_clock_ref.hex(),
                      self._local_audio_clock_ref.hex())
 
@@ -246,19 +229,18 @@ class ValeriaSession:
     def _handle_afmt(self, packet: Packet, corr_id: bytes) -> bytes:
         """AFMT — Audio format description. Reply with zero error."""
         self._afmt_received = True
-        logger.info("🎵 AFMT: Audio format received (48kHz LPCM)")
+        logger.info("AFMT: Audio format received (48kHz LPCM)")
         return build_rply_with_dict_error(corr_id, error=0)
 
     def _handle_cvrp(self, packet: Packet, corr_id: bytes) -> bytes:
         """CVRP — Create video clock. Contains H.264 format description with SPS/PPS."""
-        # Extract device video clock ref
         if len(packet.payload) >= 16:
             self._device_video_clock_ref = packet.payload[8:16]
 
         self._local_video_clock_ref = self._generate_clock_ref()
         self._cvrp_received = True
 
-        logger.info("📹 CVRP: Device video clock=%s, our clock=%s",
+        logger.info("CVRP: Device video clock=%s, our clock=%s",
                      self._device_video_clock_ref.hex(),
                      self._local_video_clock_ref.hex())
 
@@ -269,44 +251,39 @@ class ValeriaSession:
         if pps:
             self._pps = pps
 
-        # Mark handshake as ready (CVRP is the last required negotiation)
+        # Mark handshake as ready
         self._handshake_state = HandshakeState.READY
-        logger.info("✅ Handshake complete — ready to stream")
+        logger.info("Handshake complete — ready to stream")
 
         return build_rply_with_clock(corr_id, 0, self._local_video_clock_ref)
 
     def _handle_clok(self, packet: Packet, corr_id: bytes) -> bytes:
         """CLOK — Create a new clock. Reply with our clock ref."""
         self._local_clock_ref = self._generate_clock_ref()
-        logger.debug("🕐 CLOK: Created clock %s", self._local_clock_ref.hex())
+        logger.debug("CLOK: Created clock %s", self._local_clock_ref.hex())
         return build_rply_with_clock(corr_id, 0, self._local_clock_ref)
 
     def _handle_time(self, packet: Packet, corr_id: bytes) -> bytes:
         """TIME — Send current CMTime for our clock."""
         current_ns = self._get_current_cmtime_ns()
         cmtime = build_cmtime(current_ns)
-        logger.debug("⏱️ TIME: Sending %d ns", current_ns)
-
-        from imirror.usb.packets import build_rply
+        logger.debug("TIME: Sending %d ns", current_ns)
         payload = struct.pack("<I", 0) + cmtime
         return build_rply(corr_id, payload)
 
     def _handle_skew(self, packet: Packet, corr_id: bytes) -> bytes:
         """SKEW — Report clock skew. We report 48000.0 (perfectly aligned)."""
-        logger.debug("📐 SKEW: Reporting 48000.0 (aligned)")
-        from imirror.usb.packets import build_rply
+        logger.debug("SKEW: Reporting 48000.0 (aligned)")
         payload = struct.pack("<Id", 0, 48000.0)
         return build_rply(corr_id, payload)
 
     def _handle_og(self, packet: Packet, corr_id: bytes) -> bytes:
         """OG — Unknown purpose. Reply with 8 zero bytes."""
-        from imirror.usb.packets import build_rply
         return build_rply(corr_id, b"\x00" * 8)
 
     def _handle_stop(self, packet: Packet, corr_id: bytes) -> bytes:
         """STOP — Stop our clock. Reply with 8 zero bytes."""
-        logger.info("⏹️ STOP: Stopping clock")
-        from imirror.usb.packets import build_rply
+        logger.info("STOP: Stopping clock")
         return build_rply(corr_id, b"\x00" * 8)
 
     def _handle_asyn(self, packet: Packet) -> None:
@@ -338,7 +315,6 @@ class ValeriaSession:
             # Detect keyframes by checking for IDR NAL type (5)
             is_keyframe = False
             if len(h264_data) > 4:
-                # Check after start code
                 for i in range(len(h264_data) - 4):
                     if h264_data[i:i+4] == b"\x00\x00\x00\x01":
                         nal_type = h264_data[i+4] & 0x1F if i + 4 < len(h264_data) else 0
@@ -356,13 +332,22 @@ class ValeriaSession:
             self._on_video_frame(frame)
 
     def _handle_eat(self, packet: Packet) -> None:
-        """EAT! — PCM audio data in a CMSampleBuffer."""
+        """EAT! — PCM audio data in a CMSampleBuffer.
+
+        Extracts the raw PCM audio from the CMSampleBuffer wrapper
+        before passing to the audio callback.
+        """
+        self.audio_samples_received += 1
+
         if self._on_audio_sample:
-            sample = AudioSample(
-                data=packet.payload,
-                timestamp_ns=self._get_current_cmtime_ns(),
-            )
-            self._on_audio_sample(sample)
+            # Extract PCM data from CMSampleBuffer wrapper
+            pcm_data = extract_pcm_from_eat(packet.payload)
+            if pcm_data:
+                sample = AudioSample(
+                    data=pcm_data,
+                    timestamp_ns=self._get_current_cmtime_ns(),
+                )
+                self._on_audio_sample(sample)
 
     # ─── Session control ────────────────────────────────────────────
 

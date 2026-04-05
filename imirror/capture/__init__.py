@@ -1,1 +1,1 @@
-"""Capture backends — screenshot and video stream capture."""
+"""Capture backends for iPhone screen mirroring."""
