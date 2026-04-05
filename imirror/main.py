@@ -17,8 +17,13 @@ import logging
 import sys
 import os
 
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 from imirror import __version__, __app_name__
-from imirror.config import config, CaptureBackend
+from imirror.config import config, CaptureBackendType
 
 
 def setup_logging(verbose: bool = False, log_file: str = None) -> None:
@@ -115,7 +120,7 @@ def cmd_install_driver() -> int:
     print("=" * 50)
     result = full_driver_setup()
     print()
-    print(f"{'✅' if result.success else '❌'} {result.message}")
+    print(f"{'[OK]' if result.success else '[FAIL]'} {result.message}")
     return 0 if result.success else 1
 
 
@@ -126,7 +131,7 @@ def cmd_uninstall_driver() -> int:
     print("=" * 50)
     result = uninstall_driver()
     print()
-    print(f"{'✅' if result.success else '❌'} {result.message}")
+    print(f"{'[OK]' if result.success else '[FAIL]'} {result.message}")
     return 0 if result.success else 1
 
 
@@ -171,11 +176,11 @@ def main() -> int:
 
     # Apply config from CLI args
     backend_map = {
-        "auto": CaptureBackend.AUTO,
-        "valeria": CaptureBackend.VALERIA,
-        "screenshot": CaptureBackend.SCREENSHOT,
+        "auto": CaptureBackendType.AUTO,
+        "valeria": CaptureBackendType.VALERIA,
+        "screenshot": CaptureBackendType.SCREENSHOT,
     }
-    config.capture_backend = backend_map.get(args.backend, CaptureBackend.AUTO)
+    config.capture_backend = backend_map.get(args.backend, CaptureBackendType.AUTO)
     config.always_on_top = args.always_on_top or config.always_on_top
     config.show_fps_overlay = args.fps or config.show_fps_overlay
     config.start_fullscreen = args.fullscreen or config.start_fullscreen

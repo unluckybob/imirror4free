@@ -72,14 +72,14 @@ class DriverCheckResult:
         lines.append("IMIRROR4FREE — USB Driver Diagnostic")
         lines.append("=" * 60)
         lines.append(f"Platform: {self.platform}")
-        lines.append(f"pyusb installed: {'✅' if self.pyusb_available else '❌'}")
-        lines.append(f"libusb backend: {'✅' if self.libusb_backend else '❌'}")
-        lines.append(f"Apple device found: {'✅' if self.apple_device_found else '❌'}")
-        lines.append(f"Device accessible: {'✅' if self.device_accessible else '❌'}")
-        lines.append(f"QT AV config active: {'✅' if self.qt_config_active else '➖ (will be enabled)'}")
+        lines.append(f"pyusb installed: {'[OK]' if self.pyusb_available else '[FAIL]'}")
+        lines.append(f"libusb backend: {'[OK]' if self.libusb_backend else '[FAIL]'}")
+        lines.append(f"Apple device found: {'[OK]' if self.apple_device_found else '[FAIL]'}")
+        lines.append(f"Device accessible: {'[OK]' if self.device_accessible else '[FAIL]'}")
+        lines.append(f"QT AV config active: {'[OK]' if self.qt_config_active else '[-] (will be enabled)'}")
 
         if self.platform == "Windows":
-            lines.append(f"WinUSB driver: {'✅ Installed' if self.winusb_driver_installed else '❌ Not installed'}")
+            lines.append(f"WinUSB driver: {'[OK] Installed' if self.winusb_driver_installed else '[FAIL] Not installed'}")
 
         if self.device_info:
             lines.append(f"Device: {self.device_info}")
@@ -87,17 +87,17 @@ class DriverCheckResult:
         lines.append("")
 
         if self.valeria_ready:
-            lines.append("🎉 RESULT: System is ready for Valeria streaming!")
+            lines.append("[SUCCESS] RESULT: System is ready for Valeria streaming!")
             if not self.qt_config_active:
                 lines.append("   QT config will be activated automatically when streaming starts.")
 
         elif self.needs_replug:
-            lines.append("⚠️ RESULT: Driver installed — unplug and replug your iPhone")
+            lines.append("[WARN] RESULT: Driver installed — unplug and replug your iPhone")
             lines.append("   The mirror driver is installed but your iPhone needs to be")
             lines.append("   reconnected for Windows to load the new driver.")
 
         elif self.needs_driver_install:
-            lines.append("⚠️ RESULT: Mirror driver installation needed")
+            lines.append("[WARN] RESULT: Mirror driver installation needed")
             lines.append("")
             lines.append("You have two options:")
             lines.append("")
@@ -117,17 +117,17 @@ class DriverCheckResult:
             lines.append("  You can restore the original driver through the app or Device Manager.")
 
         elif not self.pyusb_available:
-            lines.append("❌ RESULT: pyusb not installed")
+            lines.append("[FAIL] RESULT: pyusb not installed")
             lines.append("   Run: pip install pyusb")
         elif not self.libusb_backend:
-            lines.append("❌ RESULT: No libusb backend available")
+            lines.append("[FAIL] RESULT: No libusb backend available")
             lines.append("   Run: pip install libusb-package")
         elif not self.apple_device_found:
-            lines.append("❌ RESULT: No iPhone found on USB")
+            lines.append("[FAIL] RESULT: No iPhone found on USB")
             lines.append("   Make sure your iPhone is connected via USB cable.")
             lines.append("   On the iPhone, tap 'Trust' if prompted.")
         else:
-            lines.append("❌ RESULT: Unknown issue")
+            lines.append("[FAIL] RESULT: Unknown issue")
 
         for err in self.errors:
             lines.append(f"   ERROR: {err}")

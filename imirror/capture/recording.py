@@ -242,8 +242,8 @@ class ScreenRecorder:
                 logger.debug("Audio recording error: %s", e)
 
 
-class ScreenshotCapture:
-    """Captures individual screenshots from the mirror stream."""
+class ScreenshotSaver:
+    """Saves individual screenshots from the mirror stream."""
 
     @staticmethod
     def save_screenshot(frame: np.ndarray,

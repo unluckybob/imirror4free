@@ -31,7 +31,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import QAction, QKeySequence, QIcon, QImage, QPixmap
 
 from imirror import __version__, __app_name__
-from imirror.config import config, CaptureBackend, DecoderType, RecordingFormat
+from imirror.config import config, CaptureBackendType, DecoderType, RecordingFormat
 from imirror.gui.styles import DARK_THEME, WAITING_SCREEN_STYLE
 from imirror.gui.overlay import FPSOverlay
 
@@ -448,12 +448,12 @@ class MainWindow(QMainWindow):
             self.error_signal.emit("Connection Error", str(e))
             self._is_connected = False
 
-    def _capture_thread(self, udid: str, backend: CaptureBackend) -> None:
+    def _capture_thread(self, udid: str, backend: CaptureBackendType) -> None:
         """Background capture thread."""
         try:
-            if backend in (CaptureBackend.AUTO, CaptureBackend.VALERIA):
+            if backend in (CaptureBackendType.AUTO, CaptureBackendType.VALERIA):
                 self._start_valeria_capture(udid)
-            elif backend == CaptureBackend.SCREENSHOT:
+            elif backend == CaptureBackendType.SCREENSHOT:
                 self._start_screenshot_capture(udid)
         except Exception as e:
             logger.error("Capture thread error: %s", e)
@@ -479,7 +479,7 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.warning("Valeria capture failed: %s — falling back to screenshot", e)
-            if config.capture_backend == CaptureBackend.AUTO:
+            if config.capture_backend == CaptureBackendType.AUTO:
                 self._start_screenshot_capture(udid)
             else:
                 raise
@@ -583,9 +583,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            from imirror.capture.recording import ScreenshotCapture
+            from imirror.capture.recording import ScreenshotSaver
 
-            path = ScreenshotCapture.save_screenshot(self._current_frame)
+            path = ScreenshotSaver.save_screenshot(self._current_frame)
             if path:
                 self.status_update.emit(f"Screenshot saved: {os.path.basename(path)}")
             else:
@@ -623,14 +623,14 @@ class MainWindow(QMainWindow):
             if result.success:
                 QMessageBox.information(
                     self, "Driver Installed",
-                    f"✅ {result.message}\n\n"
+                    f"[OK] {result.message}\n\n"
                     "Please unplug and replug your iPhone to activate the new driver."
                 )
                 self._waiting_status.setText("Driver installed — please replug your iPhone")
                 self._btn_install_driver.setVisible(False)
             else:
                 QMessageBox.warning(self, "Driver Installation Failed",
-                                   f"❌ {result.message}")
+                                   f"[FAIL] {result.message}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Driver installation error: {e}")
 
@@ -653,10 +653,10 @@ class MainWindow(QMainWindow):
 
             if result.success:
                 QMessageBox.information(self, "Driver Restored",
-                                       f"✅ {result.message}")
+                                       f"[OK] {result.message}")
             else:
                 QMessageBox.warning(self, "Restore Failed",
-                                   f"❌ {result.message}")
+                                   f"[FAIL] {result.message}")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
@@ -667,10 +667,10 @@ class MainWindow(QMainWindow):
             status = check_driver_status()
 
             lines = [
-                f"iPhone detected: {'✅ Yes' if status.iphone_detected else '❌ No'}",
-                f"Mirror driver installed: {'✅ Yes' if status.installed else '❌ No'}",
-                f"libusb accessible: {'✅ Yes' if status.libusb_accessible else '❌ No'}",
-                f"Ready to stream: {'✅ Yes' if status.ready_to_stream else '❌ No'}",
+                f"iPhone detected: {'[OK] Yes' if status.iphone_detected else '[FAIL] No'}",
+                f"Mirror driver installed: {'[OK] Yes' if status.installed else '[FAIL] No'}",
+                f"libusb accessible: {'[OK] Yes' if status.libusb_accessible else '[FAIL] No'}",
+                f"Ready to stream: {'[OK] Yes' if status.ready_to_stream else '[FAIL] No'}",
             ]
             if status.device_pid:
                 lines.append(f"Device PID: 0x{status.device_pid:04X}")
@@ -943,10 +943,10 @@ class SettingsDialog(QDialog):
 
     def apply_settings(self) -> None:
         """Apply the settings from the dialog to config."""
-        backend_map = {0: CaptureBackend.AUTO, 1: CaptureBackend.VALERIA,
-                       2: CaptureBackend.SCREENSHOT}
+        backend_map = {0: CaptureBackendType.AUTO, 1: CaptureBackendType.VALERIA,
+                       2: CaptureBackendType.SCREENSHOT}
         config.capture_backend = backend_map.get(self._backend_combo.currentIndex(),
-                                                  CaptureBackend.AUTO)
+                                                  CaptureBackendType.AUTO)
 
         decoder_map = {0: DecoderType.AUTO, 1: DecoderType.HARDWARE_D3D11,
                        2: DecoderType.HARDWARE_DXVA2, 3: DecoderType.SOFTWARE}
