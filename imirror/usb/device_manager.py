@@ -1,14 +1,16 @@
 """
-Device Manager — Detects and manages connected iPhones via pymobiledevice3.
+Device Manager — Detects and manages connected iPhones via multiple methods.
 
-Uses Apple's usbmuxd protocol (through pymobiledevice3) to:
-- Detect connected iOS devices over USB
-- Read device info (name, model, resolution, iOS version)
-- Establish lockdown connections for DVT services
-- Monitor for connect/disconnect events
+Detection strategy (tries in order):
+1. pymobiledevice3 via usbmuxd — works when Apple's driver is loaded (normal)
+2. pyusb via libusb — works when WinUSB is loaded (after driver install)
 
-IMPORTANT: pymobiledevice3's usbmux API is fully async.
-We run an asyncio event loop in a background thread to handle this.
+This dual-detection approach ensures we can find the iPhone regardless of
+which USB driver is active, which is critical for the Phase 2 driver
+installation flow where we switch from Apple's driver to WinUSB.
+
+Also integrates with the driver installer to provide driver status
+information to the GUI.
 """
 
 import asyncio
@@ -21,9 +23,6 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional, Callable
-
-from pymobiledevice3.usbmux import list_devices as async_list_devices
-from pymobiledevice3.lockdown import create_using_usbmux as async_create_using_usbmux, LockdownClient
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +38,16 @@ class iPhoneDevice:
     display_width: int = 0
     display_height: int = 0
     serial: str = ""
-    lockdown: Optional[LockdownClient] = field(default=None, repr=False)
+    lockdown: Optional[object] = field(default=None, repr=False)
+    detected_via: str = "usbmuxd"  # "usbmuxd" or "pyusb"
 
     @property
     def display_name(self) -> str:
         """Human-readable device description."""
         if self.name and self.model:
             return f"{self.name} ({self.model}, iOS {self.ios_version})"
+        if self.name:
+            return self.name
         return f"iPhone [{self.udid[:8]}...]"
 
     @property
@@ -69,11 +71,7 @@ IPHONE_RESOLUTIONS = {
 
 
 def _run_async(coro):
-    """Run an async coroutine synchronously from a regular thread.
-
-    Creates a new event loop for each call to avoid conflicts
-    with Qt's event loop.
-    """
+    """Run an async coroutine synchronously from a regular thread."""
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)
@@ -94,6 +92,7 @@ def run_startup_diagnostics() -> dict:
         "apple_mobile_device_service": False,
         "usbmuxd_reachable": False,
         "pymobiledevice3_version": "unknown",
+        "driver_status": None,
         "issues": [],
     }
 
@@ -103,7 +102,6 @@ def run_startup_diagnostics() -> dict:
         results["pymobiledevice3_version"] = getattr(pymobiledevice3, "__version__", "installed (version unknown)")
     except ImportError:
         results["issues"].append("pymobiledevice3 is not installed")
-        return results
 
     # Windows-specific checks
     if platform.system() == "Windows":
@@ -120,7 +118,6 @@ def run_startup_diagnostics() -> dict:
                 break
 
         if not results["itunes_installed"]:
-            # Also check for Apple Devices app (Windows Store version)
             apple_devices_path = shutil.which("AppleMobileDeviceService.exe")
             if apple_devices_path:
                 results["itunes_installed"] = True
@@ -153,25 +150,40 @@ def run_startup_diagnostics() -> dict:
                     "Could not check Apple Mobile Device Service status."
                 )
 
+        # Check mirror driver status
+        try:
+            from imirror.usb.driver_installer import check_driver_status
+            results["driver_status"] = check_driver_status()
+        except ImportError:
+            pass
+
     # Test usbmuxd connection
     try:
+        from pymobiledevice3.usbmux import list_devices as async_list_devices
         devices = _run_async(async_list_devices())
         results["usbmuxd_reachable"] = True
         logger.info("usbmuxd reachable, found %d device(s) at startup", len(devices))
     except Exception as e:
         results["usbmuxd_reachable"] = False
-        results["issues"].append(f"Cannot reach usbmuxd: {e}")
+        # Only warn if no mirror driver is installed (usbmuxd fails when WinUSB is active)
+        driver_status = results.get("driver_status")
+        if driver_status and driver_status.installed:
+            logger.info("usbmuxd not reachable (expected — WinUSB mirror driver is active)")
+        else:
+            results["issues"].append(f"Cannot reach usbmuxd: {e}")
 
     return results
 
 
 class DeviceManager:
     """
-    Manages iPhone USB connections.
+    Manages iPhone USB connections with dual-detection support.
 
-    Polls for connected devices and notifies callbacks when devices
-    connect or disconnect. Handles lockdown client creation for
-    accessing device services.
+    Detection methods:
+    1. pymobiledevice3 (usbmuxd) — standard method, works with Apple's driver
+    2. pyusb (libusb) — fallback, works with WinUSB mirror driver
+
+    The manager automatically uses whichever method finds a device.
     """
 
     def __init__(self, poll_interval: float = 1.0):
@@ -181,6 +193,7 @@ class DeviceManager:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._diagnostics: Optional[dict] = None
+        self._usbmuxd_available = True  # Assume yes until proven otherwise
 
         # Callbacks
         self._on_device_connected: Optional[Callable[[iPhoneDevice], None]] = None
@@ -228,6 +241,14 @@ class DeviceManager:
         logger.info("  Apple Mobile Device Service: %s", "RUNNING" if self._diagnostics["apple_mobile_device_service"] else "NOT RUNNING")
         logger.info("  usbmuxd reachable: %s", "YES" if self._diagnostics["usbmuxd_reachable"] else "NO")
 
+        # Log driver status
+        driver_status = self._diagnostics.get("driver_status")
+        if driver_status:
+            logger.info("  Mirror driver: %s", "INSTALLED" if driver_status.installed else "NOT INSTALLED")
+            logger.info("  libusb accessible: %s", "YES" if driver_status.libusb_accessible else "NO")
+
+        self._usbmuxd_available = self._diagnostics.get("usbmuxd_reachable", False)
+
         if self._diagnostics["issues"]:
             for issue in self._diagnostics["issues"]:
                 logger.warning("  [!] %s", issue)
@@ -259,34 +280,18 @@ class DeviceManager:
             time.sleep(self._poll_interval)
 
     def _check_devices(self) -> None:
-        """Check for connected/disconnected devices."""
-        try:
-            # pymobiledevice3's list_devices is async — run it synchronously
-            usb_devices = _run_async(async_list_devices())
-            logger.debug("Found %d USB device(s)", len(usb_devices))
-        except Exception as e:
-            logger.debug("Failed to list USB devices: %s", e)
-            return
-
+        """Check for connected/disconnected devices using available methods."""
         current_udids = set()
-        for dev in usb_devices:
-            # Only care about USB connections (not network)
-            if hasattr(dev, 'is_usb') and not dev.is_usb:
-                continue
 
-            udid = dev.serial
-            current_udids.add(udid)
+        # Method 1: Try usbmuxd (pymobiledevice3) — standard detection
+        if self._usbmuxd_available:
+            usbmuxd_udids = self._check_via_usbmuxd()
+            current_udids.update(usbmuxd_udids)
 
-            with self._lock:
-                if udid not in self._devices:
-                    # New device connected
-                    device = self._create_device(udid)
-                    if device:
-                        self._devices[udid] = device
-                        logger.info("Device connected: %s", device.display_name)
-                        logger.info("  Resolution: %s", device.resolution_str)
-                        if self._on_device_connected:
-                            self._on_device_connected(device)
+        # Method 2: Try pyusb — fallback when WinUSB is active
+        if not current_udids:
+            pyusb_udids = self._check_via_pyusb()
+            current_udids.update(pyusb_udids)
 
         # Check for disconnected devices
         with self._lock:
@@ -297,13 +302,100 @@ class DeviceManager:
                 if self._on_device_disconnected:
                     self._on_device_disconnected(udid)
 
-    def _create_device(self, udid: str) -> Optional[iPhoneDevice]:
+    def _check_via_usbmuxd(self) -> set[str]:
+        """Detect devices via pymobiledevice3/usbmuxd."""
+        found_udids = set()
+
+        try:
+            from pymobiledevice3.usbmux import list_devices as async_list_devices
+            usb_devices = _run_async(async_list_devices())
+            logger.debug("usbmuxd found %d device(s)", len(usb_devices))
+        except Exception as e:
+            logger.debug("usbmuxd check failed: %s", e)
+            self._usbmuxd_available = False
+            return found_udids
+
+        self._usbmuxd_available = True
+
+        for dev in usb_devices:
+            if hasattr(dev, 'is_usb') and not dev.is_usb:
+                continue
+
+            udid = dev.serial
+            found_udids.add(udid)
+
+            with self._lock:
+                if udid not in self._devices:
+                    device = self._create_device_usbmuxd(udid)
+                    if device:
+                        self._devices[udid] = device
+                        logger.info("Device connected: %s", device.display_name)
+                        logger.info("  Resolution: %s", device.resolution_str)
+                        logger.info("  Detected via: usbmuxd")
+                        if self._on_device_connected:
+                            self._on_device_connected(device)
+
+        return found_udids
+
+    def _check_via_pyusb(self) -> set[str]:
+        """Detect devices via pyusb/libusb (works with WinUSB driver)."""
+        found_udids = set()
+
+        try:
+            import usb.core
+
+            backend = None
+            if platform.system() == "Windows":
+                try:
+                    import libusb_package
+                    backend = libusb_package.get_libusb1_backend()
+                except ImportError:
+                    pass
+
+            if not backend:
+                try:
+                    import usb.backend.libusb1
+                    backend = usb.backend.libusb1.get_backend()
+                except Exception:
+                    return found_udids
+
+            kwargs = {"idVendor": 0x05AC, "find_all": True}
+            if backend:
+                kwargs["backend"] = backend
+
+            devices = list(usb.core.find(**kwargs))
+            if not devices:
+                return found_udids
+
+            for dev in devices:
+                # Generate a pseudo-UDID from USB device properties
+                # (real UDID requires usbmuxd, which isn't available here)
+                pseudo_udid = f"usb_{dev.idVendor:04x}_{dev.idProduct:04x}_{dev.bus}_{dev.address}"
+
+                found_udids.add(pseudo_udid)
+
+                with self._lock:
+                    if pseudo_udid not in self._devices:
+                        device = self._create_device_pyusb(dev, pseudo_udid)
+                        if device:
+                            self._devices[pseudo_udid] = device
+                            logger.info("Device connected: %s", device.display_name)
+                            logger.info("  Detected via: pyusb (WinUSB mode)")
+                            if self._on_device_connected:
+                                self._on_device_connected(device)
+
+        except Exception as e:
+            logger.debug("pyusb check failed: %s", e)
+
+        return found_udids
+
+    def _create_device_usbmuxd(self, udid: str) -> Optional[iPhoneDevice]:
         """Create an iPhoneDevice with full info from lockdown."""
         try:
-            # pymobiledevice3's create_using_usbmux is async
+            from pymobiledevice3.lockdown import create_using_usbmux as async_create_using_usbmux
+
             lockdown = _run_async(async_create_using_usbmux(serial=udid))
 
-            # Extract device info from lockdown values
             all_values = lockdown.all_values
             product_type = all_values.get("ProductType", "")
             resolution = IPHONE_RESOLUTIONS.get(product_type, (0, 0))
@@ -319,6 +411,7 @@ class DeviceManager:
                 display_height=resolution[1],
                 serial=all_values.get("SerialNumber", ""),
                 lockdown=lockdown,
+                detected_via="usbmuxd",
             )
             return device
 
@@ -326,7 +419,27 @@ class DeviceManager:
             logger.warning("Failed to create device for UDID %s: %s", udid[:8], e, exc_info=True)
             return None
 
-    def get_lockdown(self, udid: Optional[str] = None) -> Optional[LockdownClient]:
+    def _create_device_pyusb(self, usb_dev, pseudo_udid: str) -> Optional[iPhoneDevice]:
+        """Create an iPhoneDevice from pyusb device (limited info)."""
+        try:
+            try:
+                product = usb_dev.product or "iPhone"
+            except Exception:
+                product = "iPhone"
+
+            device = iPhoneDevice(
+                udid=pseudo_udid,
+                name=product,
+                model=f"PID 0x{usb_dev.idProduct:04X}",
+                detected_via="pyusb",
+            )
+            return device
+
+        except Exception as e:
+            logger.warning("Failed to create pyusb device: %s", e)
+            return None
+
+    def get_lockdown(self, udid: Optional[str] = None):
         """Get a lockdown client for the specified device (or first device)."""
         with self._lock:
             if udid:

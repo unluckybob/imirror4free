@@ -1,34 +1,27 @@
-# IMIRROR4FREE Dependencies
-# ========================
+# IMIRROR4FREE — Dependencies
+# Install: pip install -r requirements.txt
 
-# Apple USB protocol - device detection, pairing, DVT services
-pymobiledevice3>=4.0.0
+# USB Communication
+pyusb>=1.2.0
+libusb-package>=1.0.26.0       # Bundles libusb for Windows — no manual DLL needed
 
-# Raw USB access for Valeria protocol (Phase 2)
-pyusb>=1.2.1
+# iPhone Detection & Communication
+pymobiledevice3>=2.0.0
 
-# Application framework
-PyQt6>=6.6.0
-
-# OpenGL rendering
-PyOpenGL>=3.1.7
-PyOpenGL-accelerate>=3.1.7
-
-# Video decode (FFmpeg with hardware acceleration)
+# Video Decoding (H.264 via FFmpeg)
 av>=12.0.0
 
-# Fast frame buffer operations
-numpy>=1.26.0
+# GUI Framework
+PyQt6>=6.6.0
 
-# Image processing (screenshot capture)
-Pillow>=10.0.0
+# OpenGL Rendering
+PyOpenGL>=3.1.7
 
-# Audio playback
+# Audio Playback
 sounddevice>=0.4.6
 
-# Windows-specific USB driver helper
-# libusb is bundled with pyusb on Windows via libusb-package
-libusb-package>=1.0.26.1; sys_platform == "win32"
+# Numerical (frame buffers)
+numpy>=1.24.0
 
-# Build tools (optional - for creating .exe)
-# pyinstaller>=6.0.0
+# Image processing (screenshot fallback)
+Pillow>=10.0.0
