@@ -1,12 +1,14 @@
 """
-Main Application Window.
+Main Application Window — Phase 2.
 
 The central hub that connects device detection, capture backends,
-and the OpenGL renderer into a cohesive user experience.
+driver installation, and the OpenGL renderer into a cohesive user experience.
 
 Features:
-- Auto-detect iPhone on USB
+- Auto-detect iPhone on USB (via usbmuxd or pyusb)
 - Show waiting screen with connection instructions
+- "Install Mirror Driver" button for first-time setup (Phase 2)
+- Driver status indicator
 - Switch to mirror view when device connects
 - FPS overlay (F3)
 - Fullscreen mode (F11)
@@ -15,12 +17,14 @@ Features:
 """
 
 import logging
+import platform
+import threading
 from typing import Optional
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QStackedWidget, QStatusBar, QApplication,
-    QMessageBox,
+    QMessageBox, QPushButton,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeyEvent, QAction
@@ -30,8 +34,7 @@ from imirror.config import config, CaptureBackend
 from imirror.usb.device_manager import DeviceManager, iPhoneDevice
 from imirror.capture.base import CapturedFrame, CaptureBackend as CaptureBackendBase
 from imirror.capture.screenshot import ScreenshotCapture
-from imirror.capture.stream import ValeriaStreamCapture
-from imirror.render.gl_renderer import GLRenderer
+from imirror.capture.stream import ValeriaStreamCapture, StreamError
 from imirror.gui.overlay import FPSOverlay
 from imirror.gui.styles import DARK_THEME
 
@@ -46,6 +49,7 @@ class MainWindow(QMainWindow):
     _device_disconnected_signal = pyqtSignal(str)
     _frame_ready_signal = pyqtSignal(object)
     _capture_stopped_signal = pyqtSignal(str)
+    _driver_install_result_signal = pyqtSignal(bool, str)
 
     def __init__(self):
         super().__init__()
@@ -104,6 +108,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._waiting_widget)
 
         # Page 1: Mirror view (OpenGL renderer)
+        from imirror.render.gl_renderer import GLRenderer
+
         self._mirror_container = QWidget()
         mirror_layout = QVBoxLayout(self._mirror_container)
         mirror_layout.setContentsMargins(0, 0, 0, 0)
@@ -128,7 +134,7 @@ class MainWindow(QMainWindow):
         self._status_bar.addPermanentWidget(QLabel(f"v{__version__}"))
 
     def _create_waiting_screen(self) -> QWidget:
-        """Create the 'waiting for device' screen."""
+        """Create the 'waiting for device' screen with driver install button."""
         widget = QWidget()
         widget.setObjectName("waitingScreen")
 
@@ -153,7 +159,7 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(title)
 
-        # Subtitle — this label is updated to show errors too
+        # Subtitle — updated to show errors and status
         self._waiting_subtitle = QLabel("Connect your iPhone via USB cable")
         self._waiting_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._waiting_subtitle.setObjectName("waitingSubtitle")
@@ -180,6 +186,72 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(instructions)
 
+        # ─── Driver install button (Phase 2) ────────────────────────
+        # Only shown on Windows and when driver installation is needed.
+        self._driver_button_container = QWidget()
+        driver_layout = QVBoxLayout(self._driver_button_container)
+        driver_layout.setSpacing(8)
+        driver_layout.setContentsMargins(40, 16, 40, 0)
+
+        self._driver_install_btn = QPushButton("🔧 Install Mirror Driver")
+        self._driver_install_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0078D4;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 24px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1084D8;
+            }
+            QPushButton:pressed {
+                background-color: #005A9E;
+            }
+            QPushButton:disabled {
+                background-color: #444444;
+                color: #888888;
+            }
+        """)
+        self._driver_install_btn.clicked.connect(self._on_install_driver_clicked)
+        self._driver_install_btn.setVisible(False)  # Hidden by default
+        driver_layout.addWidget(self._driver_install_btn)
+
+        # Driver status label
+        self._driver_status_label = QLabel("")
+        self._driver_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._driver_status_label.setStyleSheet("""
+            font-size: 11px;
+            color: #888888;
+            background: transparent;
+        """)
+        self._driver_status_label.setVisible(False)
+        driver_layout.addWidget(self._driver_status_label)
+
+        # Restore driver button (smaller, below install)
+        self._driver_restore_btn = QPushButton("Restore Original Apple Driver")
+        self._driver_restore_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #888888;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 6px 16px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                color: #FFFFFF;
+                border-color: #888888;
+            }
+        """)
+        self._driver_restore_btn.clicked.connect(self._on_restore_driver_clicked)
+        self._driver_restore_btn.setVisible(False)
+        driver_layout.addWidget(self._driver_restore_btn)
+
+        layout.addWidget(self._driver_button_container)
+
         # Scanning indicator
         self._scanning_label = QLabel("🔍 Scanning for devices...")
         self._scanning_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -191,7 +263,46 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(self._scanning_label)
 
+        # Show driver button on Windows
+        if platform.system() == "Windows":
+            self._check_and_show_driver_button()
+
         return widget
+
+    def _check_and_show_driver_button(self) -> None:
+        """Check driver status and show/hide the install button."""
+        try:
+            from imirror.usb.driver_installer import check_driver_status
+            status = check_driver_status()
+
+            if status.ready_to_stream:
+                # Driver is ready — hide button, show status
+                self._driver_install_btn.setVisible(False)
+                self._driver_status_label.setText("✅ Mirror driver ready")
+                self._driver_status_label.setVisible(True)
+                self._driver_restore_btn.setVisible(True)
+            elif status.installed and not status.libusb_accessible:
+                # Installed but needs replug
+                self._driver_install_btn.setVisible(False)
+                self._driver_status_label.setText(
+                    "⚡ Driver installed — unplug & replug your iPhone"
+                )
+                self._driver_status_label.setStyleSheet("""
+                    font-size: 11px;
+                    color: #FFB900;
+                    background: transparent;
+                """)
+                self._driver_status_label.setVisible(True)
+                self._driver_restore_btn.setVisible(True)
+            else:
+                # Show install button
+                self._driver_install_btn.setVisible(True)
+                self._driver_status_label.setVisible(False)
+                self._driver_restore_btn.setVisible(False)
+
+        except ImportError:
+            # driver_installer not available — show the button anyway
+            self._driver_install_btn.setVisible(True)
 
     def _setup_signals(self) -> None:
         """Connect thread-safe signals."""
@@ -199,10 +310,95 @@ class MainWindow(QMainWindow):
         self._device_disconnected_signal.connect(self._handle_device_disconnected)
         self._frame_ready_signal.connect(self._handle_frame_ready)
         self._capture_stopped_signal.connect(self._handle_capture_stopped)
+        self._driver_install_result_signal.connect(self._handle_driver_install_result)
 
     def _apply_theme(self) -> None:
         """Apply the dark theme stylesheet."""
         self.setStyleSheet(DARK_THEME)
+
+    # ─── Driver installation (Phase 2) ──────────────────────────────
+
+    def _on_install_driver_clicked(self) -> None:
+        """Handle 'Install Mirror Driver' button click."""
+        self._driver_install_btn.setEnabled(False)
+        self._driver_install_btn.setText("⏳ Installing...")
+        self._driver_status_label.setText("Requesting administrator privileges...")
+        self._driver_status_label.setVisible(True)
+
+        # Run installation in background thread to not block UI
+        thread = threading.Thread(
+            target=self._do_install_driver,
+            name="driver-install",
+            daemon=True,
+        )
+        thread.start()
+
+    def _do_install_driver(self) -> None:
+        """Install the mirror driver (runs on background thread)."""
+        try:
+            from imirror.usb.driver_installer import full_driver_setup
+            result = full_driver_setup()
+            self._driver_install_result_signal.emit(result.success, result.message)
+        except Exception as e:
+            self._driver_install_result_signal.emit(False, f"Installation error: {e}")
+
+    @pyqtSlot(bool, str)
+    def _handle_driver_install_result(self, success: bool, message: str) -> None:
+        """Handle driver installation result on the UI thread."""
+        self._driver_install_btn.setEnabled(True)
+
+        if success:
+            self._driver_install_btn.setText("✅ Driver Installed")
+            self._driver_install_btn.setEnabled(False)
+            self._driver_status_label.setText(
+                "⚡ " + message
+            )
+            self._driver_status_label.setStyleSheet("""
+                font-size: 11px;
+                color: #4CAF50;
+                background: transparent;
+            """)
+            self._driver_restore_btn.setVisible(True)
+        else:
+            self._driver_install_btn.setText("🔧 Install Mirror Driver")
+            self._driver_status_label.setText(f"❌ {message}")
+            self._driver_status_label.setStyleSheet("""
+                font-size: 11px;
+                color: #FF6B6B;
+                background: transparent;
+            """)
+
+    def _on_restore_driver_clicked(self) -> None:
+        """Handle 'Restore Original Driver' button click."""
+        reply = QMessageBox.question(
+            self,
+            "Restore Apple Driver",
+            "This will remove the IMIRROR4FREE mirror driver and restore "
+            "Apple's original iPhone USB driver.\n\n"
+            "iTunes/Apple Music will work again, but you'll need to "
+            "reinstall the mirror driver to use screen mirroring.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                from imirror.usb.driver_installer import uninstall_driver
+                result = uninstall_driver()
+                QMessageBox.information(
+                    self,
+                    "Driver Restored" if result.success else "Error",
+                    result.message,
+                )
+                if result.success:
+                    self._driver_install_btn.setVisible(True)
+                    self._driver_install_btn.setText("🔧 Install Mirror Driver")
+                    self._driver_install_btn.setEnabled(True)
+                    self._driver_restore_btn.setVisible(False)
+                    self._driver_status_label.setText("Apple driver will be restored on next plug")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to restore driver: {e}")
 
     # ─── Device events (from background thread) ────────────────────
 
@@ -220,13 +416,17 @@ class MainWindow(QMainWindow):
         logger.info("UI: Device connected — %s", device.display_name)
         self._current_device = device
 
-        # Reset any previous error state on the waiting screen
+        # Reset any previous error state
         self._waiting_subtitle.setText("Connect your iPhone via USB cable")
         self._waiting_subtitle.setStyleSheet("""
             font-size: 14px;
             color: #888888;
             background: transparent;
         """)
+
+        # Refresh driver button state
+        if platform.system() == "Windows":
+            self._check_and_show_driver_button()
 
         self._start_mirroring(device)
 
@@ -262,11 +462,21 @@ class MainWindow(QMainWindow):
         self._scanning_label.setText("🔍 Scanning for devices... (will auto-reconnect)")
         self._status_label.setText("⚠️ Capture stopped — waiting for reconnect...")
 
+        # Show driver install button if it's a driver issue
+        if hasattr(self._capture, 'error_type'):
+            error_type = self._capture.error_type
+            if error_type in (StreamError.DRIVER_NEEDED, StreamError.DRIVER_REPLUG):
+                self._driver_install_btn.setVisible(True)
+                if error_type == StreamError.DRIVER_REPLUG:
+                    self._driver_status_label.setText(
+                        "⚡ Unplug and replug your iPhone to activate the driver"
+                    )
+                    self._driver_status_label.setVisible(True)
+
     # ─── Mirroring control ──────────────────────────────────────────
 
     def _start_mirroring(self, device: iPhoneDevice) -> None:
         """Start screen mirroring with the best available backend."""
-        # Select backend
         self._capture = self._select_backend()
 
         if self._capture is None:
@@ -278,6 +488,10 @@ class MainWindow(QMainWindow):
                 color: #FF6B6B;
                 background: transparent;
             """)
+
+            # On failure, show the driver install button if on Windows
+            if platform.system() == "Windows":
+                self._driver_install_btn.setVisible(True)
             return
 
         logger.info("Using capture backend: %s", self._capture.name)
@@ -285,7 +499,7 @@ class MainWindow(QMainWindow):
         # Register frame callback
         self._capture.on_frame(self._on_frame_captured)
 
-        # Register capture-stopped callback for error recovery (via proper method)
+        # Register capture-stopped callback for error recovery
         self._capture.on_capture_stopped(
             lambda reason: self._capture_stopped_signal.emit(reason)
         )
@@ -295,7 +509,17 @@ class MainWindow(QMainWindow):
         if not success:
             logger.error("Failed to start capture backend")
             self._status_label.setText("❌ Failed to start mirroring")
-            self._waiting_subtitle.setText("⚠️ Failed to connect — try unplugging and replugging")
+
+            # Check error type for actionable message
+            error_msg = "⚠️ Failed to connect — try unplugging and replugging"
+            if hasattr(self._capture, 'error_type'):
+                if self._capture.error_type == StreamError.DRIVER_NEEDED:
+                    error_msg = "⚠️ Mirror driver needed — click 'Install Mirror Driver' below"
+                    self._driver_install_btn.setVisible(True)
+                elif self._capture.error_type == StreamError.DRIVER_REPLUG:
+                    error_msg = "⚠️ Please unplug and replug your iPhone"
+
+            self._waiting_subtitle.setText(error_msg)
             self._waiting_subtitle.setStyleSheet("""
                 font-size: 14px;
                 color: #FF6B6B;
@@ -321,7 +545,6 @@ class MainWindow(QMainWindow):
         backend_pref = config.capture_backend
 
         if backend_pref == CaptureBackend.AUTO:
-            # Try Valeria first (best quality), fall back to screenshots
             valeria = ValeriaStreamCapture()
             if valeria.is_available():
                 logger.info("Auto-selected: Valeria Stream backend")
@@ -341,7 +564,6 @@ class MainWindow(QMainWindow):
             return ScreenshotCapture()
 
         else:
-            # Unknown — try auto
             logger.warning("Unknown backend preference: %s, using auto", backend_pref)
             return self._select_backend_auto()
 
@@ -364,7 +586,6 @@ class MainWindow(QMainWindow):
         """Handle new frame on the UI thread — upload to renderer."""
         self._renderer.set_frame(frame.pixels, frame.width, frame.height)
 
-        # Update overlay stats
         if self._capture:
             self._fps_overlay.update_stats(
                 capture_fps=self._capture.fps,
@@ -390,14 +611,12 @@ class MainWindow(QMainWindow):
         key = event.key()
 
         if key == Qt.Key.Key_F11:
-            # Toggle fullscreen
             if self.isFullScreen():
                 self.showNormal()
             else:
                 self.showFullScreen()
 
         elif key == Qt.Key.Key_F3:
-            # Toggle FPS overlay
             self._show_fps_overlay = not self._show_fps_overlay
             self._fps_overlay.setVisible(self._show_fps_overlay)
 
@@ -423,5 +642,4 @@ class MainWindow(QMainWindow):
         """Handle window resize — update overlay position."""
         super().resizeEvent(event)
         if hasattr(self, '_fps_overlay') and hasattr(self, '_renderer'):
-            # Resize overlay to match the renderer widget, not the whole window
             self._fps_overlay.resize(self._renderer.width(), self._renderer.height())

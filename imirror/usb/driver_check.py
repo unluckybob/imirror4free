@@ -1,17 +1,15 @@
 """
-Windows USB Driver Diagnostic Utility.
+Windows USB Driver Diagnostic Utility — Enhanced for Phase 2.
 
-Checks the USB driver situation for IMIRROR4FREE and provides
-actionable guidance if WinUSB is needed for Valeria streaming.
+Provides comprehensive diagnostics for the USB driver situation:
+- pyusb/libusb availability
+- Apple device detection
+- WinUSB driver status
+- QT configuration state
+- Actionable guidance (now integrated with the automated driver installer)
 
-This utility helps diagnose common USB issues:
-- No Apple device found
-- Apple device found but no libusb access
-- QT configuration already active
-- WinUSB driver needed
-
-The Valeria protocol requires raw USB access via libusb, which on
-Windows means the AV interface needs WinUSB (installable via Zadig).
+Usage:
+    python -m imirror.usb.driver_check
 """
 
 import logging
@@ -32,9 +30,11 @@ class DriverCheckResult:
         self.device_accessible = False
         self.qt_config_active = False
         self.av_endpoints_found = False
+        self.winusb_driver_installed = False
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.device_info: str = ""
+        self.device_pid: int = 0
 
     @property
     def valeria_ready(self) -> bool:
@@ -47,10 +47,20 @@ class DriverCheckResult:
         )
 
     @property
-    def needs_winusb(self) -> bool:
-        """Whether WinUSB driver installation is likely needed."""
+    def needs_driver_install(self) -> bool:
+        """Whether the mirror driver needs to be installed."""
         return (
             self.platform == "Windows"
+            and self.apple_device_found
+            and not self.device_accessible
+            and not self.winusb_driver_installed
+        )
+
+    @property
+    def needs_replug(self) -> bool:
+        """Whether the user needs to unplug/replug their iPhone."""
+        return (
+            self.winusb_driver_installed
             and self.apple_device_found
             and not self.device_accessible
         )
@@ -68,6 +78,9 @@ class DriverCheckResult:
         lines.append(f"Device accessible: {'✅' if self.device_accessible else '❌'}")
         lines.append(f"QT AV config active: {'✅' if self.qt_config_active else '➖ (will be enabled)'}")
 
+        if self.platform == "Windows":
+            lines.append(f"WinUSB driver: {'✅ Installed' if self.winusb_driver_installed else '❌ Not installed'}")
+
         if self.device_info:
             lines.append(f"Device: {self.device_info}")
 
@@ -77,20 +90,32 @@ class DriverCheckResult:
             lines.append("🎉 RESULT: System is ready for Valeria streaming!")
             if not self.qt_config_active:
                 lines.append("   QT config will be activated automatically when streaming starts.")
-        elif self.needs_winusb:
-            lines.append("⚠️ RESULT: WinUSB driver needed for USB raw access")
+
+        elif self.needs_replug:
+            lines.append("⚠️ RESULT: Driver installed — unplug and replug your iPhone")
+            lines.append("   The mirror driver is installed but your iPhone needs to be")
+            lines.append("   reconnected for Windows to load the new driver.")
+
+        elif self.needs_driver_install:
+            lines.append("⚠️ RESULT: Mirror driver installation needed")
             lines.append("")
-            lines.append("To fix this, install WinUSB via Zadig:")
-            lines.append("  1. Download Zadig from https://zadig.akeo.ie/")
-            lines.append("  2. Connect your iPhone via USB")
-            lines.append("  3. In Zadig: Options → List All Devices")
-            lines.append("  4. Select your iPhone (Apple Mobile Device USB Device)")
-            lines.append("  5. Set the target driver to WinUSB")
-            lines.append("  6. Click 'Replace Driver' or 'Install Driver'")
+            lines.append("You have two options:")
             lines.append("")
-            lines.append("Note: This replaces only the iPhone's USB driver.")
-            lines.append("iTunes/Apple Music may not work while WinUSB is active.")
-            lines.append("You can restore the original driver through Device Manager.")
+            lines.append("  Option A — Automatic (recommended):")
+            lines.append("    Run: python -m imirror.usb.driver_installer --install")
+            lines.append("    Or click 'Install Mirror Driver' in the app.")
+            lines.append("")
+            lines.append("  Option B — Manual (via Zadig):")
+            lines.append("    1. Download Zadig from https://zadig.akeo.ie/")
+            lines.append("    2. Connect your iPhone via USB")
+            lines.append("    3. In Zadig: Options → List All Devices")
+            lines.append("    4. Select your iPhone (Apple Mobile Device USB Device)")
+            lines.append("    5. Set target driver to WinUSB → Click 'Replace Driver'")
+            lines.append("")
+            lines.append("  Note: This replaces Apple's iPhone USB driver with WinUSB.")
+            lines.append("  iTunes/Apple Music won't detect the iPhone while WinUSB is active.")
+            lines.append("  You can restore the original driver through the app or Device Manager.")
+
         elif not self.pyusb_available:
             lines.append("❌ RESULT: pyusb not installed")
             lines.append("   Run: pip install pyusb")
@@ -165,11 +190,30 @@ def check_usb_drivers() -> DriverCheckResult:
         devices = list(usb.core.find(**kwargs))
 
         if not devices:
+            # On Windows, also try WMI detection (works without WinUSB)
+            if platform.system() == "Windows":
+                try:
+                    from imirror.usb.driver_installer import detect_iphone_pid
+                    pid = detect_iphone_pid()
+                    if pid:
+                        result.apple_device_found = True
+                        result.device_pid = pid
+                        result.device_info = f"Apple Device (PID=0x{pid:04X}, detected via WMI)"
+                        # Device found via WMI but not pyusb → needs WinUSB
+                        result.warnings.append(
+                            "iPhone found via Windows but not accessible to libusb — "
+                            "mirror driver installation needed"
+                        )
+                        return result
+                except ImportError:
+                    pass
+
             result.warnings.append("No Apple USB device found — is iPhone connected?")
             return result
 
         result.apple_device_found = True
         dev = devices[0]
+        result.device_pid = dev.idProduct
 
         try:
             product = dev.product or "Apple Device"
@@ -190,6 +234,15 @@ def check_usb_drivers() -> DriverCheckResult:
     except usb.core.USBError as e:
         result.warnings.append(f"Cannot read device descriptors: {e}")
         result.warnings.append("This usually means WinUSB driver is needed")
+
+        # Check if WinUSB is installed but device needs replug
+        try:
+            from imirror.usb.driver_installer import check_driver_status
+            driver_status = check_driver_status()
+            result.winusb_driver_installed = driver_status.installed
+        except ImportError:
+            pass
+
         return result
 
     # Step 5: Check for QT AV configuration
@@ -221,6 +274,10 @@ def check_usb_drivers() -> DriverCheckResult:
                     break
     except Exception as e:
         result.warnings.append(f"Error checking QT config: {e}")
+
+    # Mark WinUSB as installed if we got this far with device access
+    if result.device_accessible:
+        result.winusb_driver_installed = True
 
     return result
 
