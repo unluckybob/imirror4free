@@ -63,6 +63,8 @@ class _Config:
         self.default_window_width: int = 400
         self.default_window_height: int = 870
         self.always_on_top: bool = False
+        self.show_fps_overlay: bool = False
+        self.start_fullscreen: bool = False
 
 
 # Global config instance

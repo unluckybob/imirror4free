@@ -322,6 +322,19 @@ class ValeriaSession:
                             is_keyframe = True
                             break
 
+            # Prepend SPS/PPS to keyframes for decoder robustness.
+            # The decoder needs SPS/PPS to initialize properly. While we
+            # pass them as extradata at init, some decoders also need them
+            # inline — especially after mid-stream errors or late joins.
+            if is_keyframe and self._sps and self._pps:
+                sps_pps = (
+                    b"\x00\x00\x00\x01" + self._sps
+                    + b"\x00\x00\x00\x01" + self._pps
+                )
+                # Only prepend if not already present in the data
+                if self._sps not in h264_data[:128]:
+                    h264_data = sps_pps + h264_data
+
             frame = VideoFrame(
                 data=h264_data,
                 timestamp_ns=self._get_current_cmtime_ns(),
