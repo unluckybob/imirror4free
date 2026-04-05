@@ -1,9 +1,9 @@
-name: Build Windows EXE
+name: Build Windows Installer
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # Allows manual trigger from Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -25,12 +25,30 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE (debug mode)
+      - name: Build with PyInstaller (onedir)
         run: python build/build_exe.py --debug
 
-      - name: Upload artifact
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build NSIS installer
+        run: |
+          # Copy the NSIS script to project root (where dist/ is)
+          copy build\installer.nsi installer.nsi
+          # Run NSIS to create the Setup.exe
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+        shell: pwsh
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: IMIRROR4FREE-Windows
+          name: IMIRROR4FREE-Setup
+          path: IMIRROR4FREE-Setup.exe
+          retention-days: 30
+
+      - name: Upload raw build (fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: IMIRROR4FREE-Portable
           path: dist/IMIRROR4FREE/
           retention-days: 30
