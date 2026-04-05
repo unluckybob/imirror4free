@@ -1,14 +1,19 @@
-name: Build Windows Installer
+name: Build IMIRROR4FREE
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+
 jobs:
-  build:
+  build-windows:
+    name: Build Windows Installer
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,38 +22,68 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller>=6.0.0
 
       - name: Build with PyInstaller (onedir)
         run: python build/build_exe.py --debug
 
+      - name: Verify PyInstaller output
+        shell: pwsh
+        run: |
+          $exe = "dist\IMIRROR4FREE\IMIRROR4FREE.exe"
+          if (!(Test-Path $exe)) {
+            Write-Error "Build output not found at $exe"
+            exit 1
+          }
+          Write-Output "[OK] PyInstaller build complete"
+          $size = (Get-Item $exe).Length / 1MB
+          Write-Output "   EXE Size: $([math]::Round($size, 1)) MB"
+
       - name: Install NSIS
-        run: choco install nsis -y
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          # Verify NSIS is installed
+          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (!(Test-Path $nsis)) {
+            Write-Error "NSIS not found at $nsis"
+            exit 1
+          }
+          Write-Output "[OK] NSIS installed at $nsis"
 
       - name: Build NSIS installer
-        run: |
-          # Copy the NSIS script to project root (where dist/ is)
-          copy build\installer.nsi installer.nsi
-          # Run NSIS to create the Setup.exe
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
         shell: pwsh
+        run: |
+          # Copy NSIS script to project root where dist/ folder is
+          Copy-Item "build\installer.nsi" -Destination "installer.nsi"
+          
+          # Run NSIS
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+          
+          # Verify installer was created
+          if (!(Test-Path "IMIRROR4FREE-Setup.exe")) {
+            Write-Error "NSIS installer was not created!"
+            exit 1
+          }
+          $size = (Get-Item "IMIRROR4FREE-Setup.exe").Length / 1MB
+          Write-Output "[OK] Installer created: $([math]::Round($size, 1)) MB"
 
-      - name: Upload installer
+      - name: Upload Setup installer
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Setup
           path: IMIRROR4FREE-Setup.exe
-          retention-days: 30
+          retention-days: 90
 
-      - name: Upload raw build (fallback)
+      - name: Upload portable build (fallback)
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Portable
           path: dist/IMIRROR4FREE/
-          retention-days: 30
+          retention-days: 90
