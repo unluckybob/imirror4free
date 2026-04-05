@@ -17,7 +17,7 @@ _CONFIG_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "IMIRR
 _CONFIG_FILE = os.path.join(_CONFIG_DIR, "settings.json")
 
 
-class CaptureBackend(Enum):
+class CaptureBackendType(Enum):
     """Which capture backend to use."""
     AUTO = "auto"               # Try Valeria first, fall back to Screenshot
     VALERIA = "valeria"         # Force Valeria streaming (30-60 FPS)
@@ -43,7 +43,7 @@ class _Config:
 
     def __init__(self):
         # ── Capture backend ─────────────────────────────────────────
-        self.capture_backend = CaptureBackend.AUTO
+        self.capture_backend = CaptureBackendType.AUTO
 
         # ── Screenshot backend (Phase 1) ────────────────────────────
         self.screenshot_target_fps: int = 15
@@ -126,7 +126,7 @@ class _Config:
                 data = json.load(f)
 
             enum_fields = {
-                "capture_backend": CaptureBackend,
+                "capture_backend": CaptureBackendType,
                 "decoder_type": DecoderType,
                 "recording_format": RecordingFormat,
             }

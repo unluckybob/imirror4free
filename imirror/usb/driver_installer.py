@@ -58,7 +58,7 @@ class DriverInstallResult:
         self.needs_replug = needs_replug
 
     def __repr__(self):
-        status = "✅" if self.success else "❌"
+        status = "[OK]" if self.success else "[FAIL]"
         return f"{status} {self.message}"
 
 
@@ -86,10 +86,10 @@ class DriverStatus:
 
     def summary(self) -> str:
         lines = [
-            f"  iPhone detected:   {'✅' if self.iphone_detected else '❌'}",
-            f"  Driver installed:  {'✅' if self.installed else '❌'}",
-            f"  libusb accessible: {'✅' if self.libusb_accessible else '❌'}",
-            f"  QT config active:  {'✅' if self.qt_config_active else '➖'}",
+            f"  iPhone detected:   {'[OK]' if self.iphone_detected else '[FAIL]'}",
+            f"  Driver installed:  {'[OK]' if self.installed else '[FAIL]'}",
+            f"  libusb accessible: {'[OK]' if self.libusb_accessible else '[FAIL]'}",
+            f"  QT config active:  {'[OK]' if self.qt_config_active else '[-]'}",
         ]
         return "\n".join(lines)
 
@@ -395,13 +395,13 @@ def create_certificate_and_sign(inf_path: str) -> bool:
 $ErrorActionPreference = 'Stop'
 
 # Remove any old IMIRROR4FREE certs
-Get-ChildItem Cert:\\CurrentUser\\My | Where-Object {{ $_.Subject -eq 'CN={cert_name}' }} | Remove-Item -Force
+Get-ChildItem Cert:\\\\CurrentUser\\\\My | Where-Object {{ $_.Subject -eq 'CN={cert_name}' }} | Remove-Item -Force
 
 # Create new self-signed code signing cert
 $cert = New-SelfSignedCertificate `
     -Type CodeSigningCert `
     -Subject "CN={cert_name}" `
-    -CertStoreLocation "Cert:\\CurrentUser\\My" `
+    -CertStoreLocation "Cert:\\\\CurrentUser\\\\My" `
     -NotAfter (Get-Date).AddYears(10) `
     -HashAlgorithm SHA256
 
@@ -475,7 +475,7 @@ $cert.Thumbprint
 
         # Step 4: Try PowerShell signing as fallback
         ps_sign = f"""
-$cert = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object {{ $_.Thumbprint -eq '{thumbprint}' }}
+$cert = Get-ChildItem Cert:\\\\CurrentUser\\\\My | Where-Object {{ $_.Thumbprint -eq '{thumbprint}' }}
 Set-AuthenticodeSignature -FilePath '{cat_path}' -Certificate $cert -HashAlgorithm SHA256
 """
         result = subprocess.run(
@@ -603,7 +603,7 @@ sys.path.insert(0, r"{os.path.dirname(os.path.abspath(__file__))}")
 print("Creating self-signed certificate...")
 cert_result = subprocess.run(
     ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", """
-$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=IMIRROR4FREE Mirror Driver' -CertStoreLocation 'Cert:\\\\CurrentUser\\\\My' -NotAfter (Get-Date).AddYears(10) -HashAlgorithm SHA256
+$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=IMIRROR4FREE Mirror Driver' -CertStoreLocation 'Cert:\\\\\\\\CurrentUser\\\\\\\\My' -NotAfter (Get-Date).AddYears(10) -HashAlgorithm SHA256
 $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
 $rootStore.Open('ReadWrite')
 $rootStore.Add($cert)
@@ -1040,4 +1040,4 @@ if __name__ == "__main__":
 
     print(f"\n{result}")
     if result.needs_replug:
-        print("\n⚡ Please unplug and replug your iPhone to activate the changes.")
+        print("\n[!] Please unplug and replug your iPhone to activate the changes.")

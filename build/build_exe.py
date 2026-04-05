@@ -71,10 +71,30 @@ def build():
         "--hidden-import=ctypes.wintypes",
 
         # Driver + recording + all imirror submodules
-        "--hidden-import=imirror.usb.driver_installer",
-        "--hidden-import=imirror.usb.driver_check",
+        "--hidden-import=imirror",
+        "--hidden-import=imirror.main",
+        "--hidden-import=imirror.config",
+        "--hidden-import=imirror.capture",
+        "--hidden-import=imirror.capture.base",
+        "--hidden-import=imirror.capture.stream",
+        "--hidden-import=imirror.capture.screenshot",
         "--hidden-import=imirror.capture.recording",
+        "--hidden-import=imirror.decode",
+        "--hidden-import=imirror.decode.video",
         "--hidden-import=imirror.decode.audio",
+        "--hidden-import=imirror.gui",
+        "--hidden-import=imirror.gui.main_window",
+        "--hidden-import=imirror.gui.overlay",
+        "--hidden-import=imirror.gui.styles",
+        "--hidden-import=imirror.render",
+        "--hidden-import=imirror.render.opengl_widget",
+        "--hidden-import=imirror.usb",
+        "--hidden-import=imirror.usb.endpoint",
+        "--hidden-import=imirror.usb.device_manager",
+        "--hidden-import=imirror.usb.valeria",
+        "--hidden-import=imirror.usb.packets",
+        "--hidden-import=imirror.usb.driver_check",
+        "--hidden-import=imirror.usb.driver_installer",
 
         # ── Collect entire packages (bundles native DLLs) ───────
         # These are CRITICAL — without them, the EXE crashes on
@@ -114,12 +134,12 @@ def build():
     if os.path.exists(exe_path):
         size_mb = os.path.getsize(exe_path) / (1024 * 1024)
         print()
-        print("✅ Build complete!")
+        print("[OK] Build complete!")
         print(f"   Executable: {exe_path}")
         print(f"   Size: {size_mb:.1f} MB")
     else:
         print()
-        print("❌ Build may have failed — executable not found at expected path")
+        print("[FAIL] Build may have failed — executable not found at expected path")
         print(f"   Expected: {exe_path}")
         sys.exit(1)
 
