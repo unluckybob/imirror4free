@@ -1,0 +1,1 @@
+"""GPU-accelerated rendering layer."""
