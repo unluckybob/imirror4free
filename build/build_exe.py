@@ -22,6 +22,12 @@ import PyInstaller.__main__
 import os
 import sys
 
+# Force UTF-8 stdout to prevent UnicodeEncodeError on Windows CI runners
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # Project root
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,16 +44,16 @@ def build():
 
         "--name=IMIRROR4FREE",
 
-        # ── ONE-DIR mode (critical for native DLLs) ────────────
+        # -- ONE-DIR mode (critical for native DLLs) --
         "--onedir",
 
-        # ── Windowed (no console) ───────────────────────────────
+        # -- Windowed (no console) --
         "--windowed",
 
-        # ── Icon ────────────────────────────────────────────────
+        # -- Icon --
         *(["--icon=" + ICON_PATH] if os.path.exists(ICON_PATH) else []),
 
-        # ── Hidden imports (modules PyInstaller can't detect) ───
+        # -- Hidden imports (modules PyInstaller can't detect) --
         "--hidden-import=usb",
         "--hidden-import=usb.core",
         "--hidden-import=usb.util",
@@ -96,8 +102,8 @@ def build():
         "--hidden-import=imirror.usb.driver_check",
         "--hidden-import=imirror.usb.driver_installer",
 
-        # ── Collect entire packages (bundles native DLLs) ───────
-        # These are CRITICAL — without them, the EXE crashes on
+        # -- Collect entire packages (bundles native DLLs) --
+        # These are CRITICAL -- without them, the EXE crashes on
         # import with missing DLL errors.
         "--collect-all=imirror",
         "--collect-all=av",
@@ -108,7 +114,7 @@ def build():
         "--collect-data=sounddevice",
         "--collect-data=certifi",
 
-        # ── Output paths ────────────────────────────────────────
+        # -- Output paths --
         f"--distpath={os.path.join(PROJECT_ROOT, 'dist')}",
         f"--workpath={os.path.join(PROJECT_ROOT, 'build', 'work')}",
         f"--specpath={os.path.join(PROJECT_ROOT, 'build')}",
@@ -139,7 +145,7 @@ def build():
         print(f"   Size: {size_mb:.1f} MB")
     else:
         print()
-        print("[FAIL] Build may have failed — executable not found at expected path")
+        print("[FAIL] Build may have failed -- executable not found at expected path")
         print(f"   Expected: {exe_path}")
         sys.exit(1)
 

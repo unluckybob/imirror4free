@@ -5,6 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-windows:
     name: Build Windows App
@@ -29,16 +34,16 @@ jobs:
       - name: Build with PyInstaller (onedir)
         run: python build/build_exe.py
 
-      - name: Smoke test — check EXE runs
+      - name: Smoke test -- check EXE exists
         shell: pwsh
         run: |
-          # Verify the EXE exists and can at least print its version
+          # Verify the EXE exists
           $exe = "dist\IMIRROR4FREE\IMIRROR4FREE.exe"
           if (!(Test-Path $exe)) {
             Write-Error "Build output not found at $exe"
             exit 1
           }
-          Write-Output "✅ Build output found: $exe"
+          Write-Output "[OK] Build output found: $exe"
           $size = (Get-Item $exe).Length / 1MB
           Write-Output "   Size: $([math]::Round($size, 1)) MB"
 
@@ -50,6 +55,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: IMIRROR4FREE-Windows
-          # Upload the entire onedir folder — GitHub zips it automatically
+          # Upload the entire onedir folder -- GitHub zips it automatically
           path: dist/IMIRROR4FREE/
           retention-days: 90
