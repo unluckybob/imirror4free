@@ -89,6 +89,7 @@ class ValeriaStreamCapture(CaptureBackend):
         # Protocol state
         self._handshake_done = threading.Event()
         self._streaming_started = False
+        self._hpd1_hpa1_sent = False
         self._init_error: Optional[str] = None
         self._error_type: str = StreamError.GENERIC
 
@@ -421,7 +422,18 @@ class ValeriaStreamCapture(CaptureBackend):
                     self._handshake_done.set()
 
                 elif packet.packet_type == PacketType.SYNC:
-                    if packet.subtype == Magic.CVRP:
+                    if packet.subtype == Magic.CWPA:
+                        logger.info("CWPA received — audio clock negotiated")
+                        # AnyMiro sends HPD1 + HPA1 immediately after CWPA
+                        # to reduce startup latency — the iPhone begins
+                        # preparing streams while CVRP/CLOK/TIME/SKEW complete.
+                        if not self._hpd1_hpa1_sent:
+                            self._send_hpd1_hpa1()
+
+                    elif packet.subtype == Magic.AFMT:
+                        logger.info("AFMT received — audio format accepted")
+
+                    elif packet.subtype == Magic.CVRP:
                         logger.info("CVRP received — video format negotiated")
 
                         if self._decoder and not self._decoder.is_initialized:
@@ -435,14 +447,13 @@ class ValeriaStreamCapture(CaptureBackend):
                             else:
                                 logger.warning("Decoder initialized WITHOUT SPS/PPS — may fail until keyframe")
 
+                        # HPD1/HPA1 already sent after CWPA — just send NEED now
                         if not self._streaming_started:
-                            self._start_streaming()
-
-                    elif packet.subtype == Magic.CWPA:
-                        logger.info("CWPA received — audio clock negotiated")
-
-                    elif packet.subtype == Magic.AFMT:
-                        logger.info("AFMT received — audio format accepted")
+                            if self._hpd1_hpa1_sent:
+                                self._start_streaming_need_only()
+                            else:
+                                # Fallback if CWPA was missed
+                                self._start_streaming()
 
             # ── Send NEED packets to keep video flowing ─────────────
             if self._streaming_started:
@@ -455,12 +466,54 @@ class ValeriaStreamCapture(CaptureBackend):
                     except usb.core.USBError:
                         pass
 
-    def _start_streaming(self) -> None:
-        """Send HPD1 + HPA1 commands to start video and audio streaming."""
+    def _send_hpd1_hpa1(self) -> None:
+        """Send HPD1 + HPA1 commands early (after CWPA, before CVRP).
+
+        AnyMiro sends these immediately after the audio clock is negotiated,
+        not after the video format is received. This lets the iPhone start
+        preparing the AV streams while the remaining handshake completes,
+        reducing startup latency.
+        """
+        logger.info("Sending HPD1 + HPA1 (early, after CWPA)...")
+        try:
+            packets = self._session.build_hpd1_hpa1_packets()
+            for pkt in packets:
+                self._endpoint.write(pkt)
+                time.sleep(0.01)
+            self._hpd1_hpa1_sent = True
+            logger.info("[STREAM] HPD1 + HPA1 sent — waiting for CVRP to send NEED")
+        except Exception as e:
+            logger.error("Failed to send HPD1/HPA1: %s", e)
+
+    def _start_streaming_need_only(self) -> None:
+        """Send NEED to request the first video frame (HPD1/HPA1 already sent).
+
+        Called after CVRP when HPD1 + HPA1 were already dispatched during
+        the CWPA phase.
+        """
         if self._streaming_started:
             return
 
-        logger.info("Sending start streaming commands (HPD1 + HPA1)...")
+        logger.info("Sending NEED to request first video frame...")
+        try:
+            need_pkt = self._session.build_need_packet()
+            self._endpoint.write(need_pkt)
+            self._streaming_started = True
+            logger.info("[STREAM] Streaming started — NEED sent, receiving video frames")
+        except Exception as e:
+            logger.error("Failed to send NEED: %s", e)
+            self._signal_error(f"Failed to start streaming: {e}")
+
+    def _start_streaming(self) -> None:
+        """Send HPD1 + HPA1 + NEED commands to start streaming (fallback path).
+
+        Used only if HPD1/HPA1 were not sent after CWPA (e.g. if CWPA was missed).
+        The preferred flow sends HPD1/HPA1 early via _send_hpd1_hpa1().
+        """
+        if self._streaming_started:
+            return
+
+        logger.info("Sending start streaming commands (HPD1 + HPA1 + NEED)...")
 
         try:
             packets = self._session.build_start_streaming_packets()
@@ -468,6 +521,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 self._endpoint.write(pkt)
                 time.sleep(0.01)
 
+            self._hpd1_hpa1_sent = True
             self._streaming_started = True
             logger.info("[STREAM] Streaming started — receiving video frames")
 
