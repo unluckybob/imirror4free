@@ -11,7 +11,8 @@ The entry point is run.py (startup crash handler) which wraps
 imirror.main and catches import errors with a user-friendly dialog.
 
 Usage:
-    python build/build_exe.py
+    python build/build_exe.py            # Release build (windowed, no console)
+    python build/build_exe.py --debug    # Debug build (console visible for errors)
 
 Output:
     dist/IMIRROR4FREE/IMIRROR4FREE.exe   (main executable)
@@ -34,6 +35,9 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Icon path (relative to project root)
 ICON_PATH = os.path.join(PROJECT_ROOT, "assets", "icon.ico")
 
+# Debug mode: pass --debug to keep console window open for error output
+DEBUG_MODE = "--debug" in sys.argv
+
 
 def build():
     """Build the IMIRROR4FREE executable."""
@@ -47,34 +51,55 @@ def build():
         # -- ONE-DIR mode (critical for native DLLs) --
         "--onedir",
 
-        # -- Windowed (no console) --
-        "--windowed",
+        # -- Windowed (no console) for release, console for debug --
+        *(["--console"] if DEBUG_MODE else ["--windowed"]),
 
         # -- Icon --
-        *(["--icon=" + ICON_PATH] if os.path.exists(ICON_PATH) else []),
+        *([f"--icon={ICON_PATH}"] if os.path.exists(ICON_PATH) else []),
 
         # -- Hidden imports (modules PyInstaller can't detect) --
+
+        # USB
         "--hidden-import=usb",
         "--hidden-import=usb.core",
         "--hidden-import=usb.util",
         "--hidden-import=usb.backend",
         "--hidden-import=usb.backend.libusb1",
         "--hidden-import=libusb_package",
+
+        # Video decoding
         "--hidden-import=av",
+
+        # iPhone detection
         "--hidden-import=pymobiledevice3",
         "--hidden-import=pymobiledevice3.lockdown",
         "--hidden-import=pymobiledevice3.usbmux",
+
+        # GUI — only the modules we actually use
         "--hidden-import=PyQt6",
         "--hidden-import=PyQt6.QtWidgets",
         "--hidden-import=PyQt6.QtCore",
         "--hidden-import=PyQt6.QtGui",
+        "--hidden-import=PyQt6.QtOpenGL",
         "--hidden-import=PyQt6.QtOpenGLWidgets",
+
+        # OpenGL
         "--hidden-import=OpenGL",
         "--hidden-import=OpenGL.GL",
+        "--hidden-import=OpenGL.platform",
+        "--hidden-import=OpenGL.platform.win32",
+
+        # Audio
         "--hidden-import=sounddevice",
+        "--hidden-import=_sounddevice_data",
+
+        # Numerical
         "--hidden-import=numpy",
+
+        # System
         "--hidden-import=ctypes",
         "--hidden-import=ctypes.wintypes",
+        "--hidden-import=_cffi_backend",       # Required by pymobiledevice3/cryptography
 
         # Driver + recording + all imirror submodules
         "--hidden-import=imirror",
@@ -103,17 +128,75 @@ def build():
         "--hidden-import=imirror.usb.driver_check",
         "--hidden-import=imirror.usb.driver_installer",
 
-        # -- Collect entire packages (bundles native DLLs) --
-        # These are CRITICAL -- without them, the EXE crashes on
-        # import with missing DLL errors.
+        # -- Collect packages with native DLLs --
+        # CRITICAL: without these, the EXE crashes on import with missing DLL errors.
         "--collect-all=imirror",
-        "--collect-all=av",
+        "--collect-all=av",                    # FFmpeg DLLs (avcodec, avformat, etc.)
         "--collect-all=pymobiledevice3",
-        "--collect-all=PyQt6",
         "--collect-all=OpenGL",
-        "--collect-data=libusb_package",
+
+        # *** FIX: libusb_package contains libusb-1.0.dll — it's a BINARY, not data ***
+        "--collect-binaries=libusb_package",
+
+        # *** FIX: sounddevice bundles portaudio DLL — collect binaries too ***
+        "--collect-binaries=sounddevice",
         "--collect-data=sounddevice",
+
+        # TLS certificates for pymobiledevice3
         "--collect-data=certifi",
+
+        # -- PyQt6: collect selectively to avoid bloat --
+        # Instead of --collect-all=PyQt6 (which bundles 300+ MB of unused modules
+        # like QtWebEngine, Qt3D, QtBluetooth, QtMultimedia, etc.), we collect
+        # only the submodules we actually use.
+        "--collect-submodules=PyQt6.QtWidgets",
+        "--collect-submodules=PyQt6.QtCore",
+        "--collect-submodules=PyQt6.QtGui",
+        "--collect-submodules=PyQt6.QtOpenGL",
+        "--collect-submodules=PyQt6.QtOpenGLWidgets",
+        "--collect-binaries=PyQt6.QtWidgets",
+        "--collect-binaries=PyQt6.QtCore",
+        "--collect-binaries=PyQt6.QtGui",
+        "--collect-binaries=PyQt6.QtOpenGL",
+        "--collect-binaries=PyQt6.QtOpenGLWidgets",
+        # Qt platform plugins (required for window creation on Windows)
+        "--collect-data=PyQt6.Qt6",
+
+        # -- Exclude unused Qt modules to slash bundle size --
+        "--exclude-module=PyQt6.QtWebEngine",
+        "--exclude-module=PyQt6.QtWebEngineCore",
+        "--exclude-module=PyQt6.QtWebEngineWidgets",
+        "--exclude-module=PyQt6.QtWebChannel",
+        "--exclude-module=PyQt6.QtDesigner",
+        "--exclude-module=PyQt6.QtDBus",
+        "--exclude-module=PyQt6.QtBluetooth",
+        "--exclude-module=PyQt6.QtMultimedia",
+        "--exclude-module=PyQt6.QtMultimediaWidgets",
+        "--exclude-module=PyQt6.QtNetwork",
+        "--exclude-module=PyQt6.QtNfc",
+        "--exclude-module=PyQt6.QtPositioning",
+        "--exclude-module=PyQt6.QtPrintSupport",
+        "--exclude-module=PyQt6.QtQml",
+        "--exclude-module=PyQt6.QtQuick",
+        "--exclude-module=PyQt6.QtQuickWidgets",
+        "--exclude-module=PyQt6.QtRemoteObjects",
+        "--exclude-module=PyQt6.QtSensors",
+        "--exclude-module=PyQt6.QtSerialPort",
+        "--exclude-module=PyQt6.QtSql",
+        "--exclude-module=PyQt6.QtSvg",
+        "--exclude-module=PyQt6.QtSvgWidgets",
+        "--exclude-module=PyQt6.QtTest",
+        "--exclude-module=PyQt6.QtXml",
+        "--exclude-module=PyQt6.Qt3D",
+
+        # -- Exclude test and debug modules --
+        "--exclude-module=pytest",
+        "--exclude-module=unittest",
+        "--exclude-module=tkinter",
+        "--exclude-module=_tkinter",
+
+        # -- Strip debug symbols for smaller binary --
+        "--strip",
 
         # -- Output paths --
         f"--distpath={os.path.join(PROJECT_ROOT, 'dist')}",
@@ -127,23 +210,45 @@ def build():
         "--noconfirm",
     ]
 
+    mode_str = "DEBUG (console)" if DEBUG_MODE else "RELEASE (windowed)"
+
     print("=" * 60)
-    print("Building IMIRROR4FREE v0.6.0")
+    print(f"Building IMIRROR4FREE v0.7.0  [{mode_str}]")
     print("=" * 60)
-    print(f"  Entry point: run.py")
-    print(f"  Mode: --onedir")
-    print(f"  Icon: {'Yes' if os.path.exists(ICON_PATH) else 'No (assets/icon.ico not found)'}")
+    print(f"  Entry point : run.py")
+    print(f"  Mode        : --onedir")
+    print(f"  Console     : {'Yes' if DEBUG_MODE else 'No'}")
+    print(f"  Icon        : {'Yes' if os.path.exists(ICON_PATH) else 'No (assets/icon.ico not found)'}")
+    print(f"  PyQt6       : Selective (trimmed — no WebEngine/3D/Multimedia)")
+    print(f"  libusb      : --collect-binaries (DLL bundled)")
     print()
 
     PyInstaller.__main__.run(args)
 
     exe_path = os.path.join(PROJECT_ROOT, "dist", "IMIRROR4FREE", "IMIRROR4FREE.exe")
     if os.path.exists(exe_path):
-        size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+        # Calculate total bundle size (entire dist folder)
+        total_size = 0
+        dist_dir = os.path.join(PROJECT_ROOT, "dist", "IMIRROR4FREE")
+        for dirpath, dirnames, filenames in os.walk(dist_dir):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                total_size += os.path.getsize(fp)
+        exe_size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+        total_size_mb = total_size / (1024 * 1024)
+
         print()
+        print("=" * 60)
         print("[OK] Build complete!")
-        print(f"   Executable: {exe_path}")
-        print(f"   Size: {size_mb:.1f} MB")
+        print(f"   Executable  : {exe_path}")
+        print(f"   EXE size    : {exe_size_mb:.1f} MB")
+        print(f"   Bundle total: {total_size_mb:.1f} MB")
+        print("=" * 60)
+
+        if DEBUG_MODE:
+            print()
+            print("  ** DEBUG BUILD — console window will stay open **")
+            print("  ** Run IMIRROR4FREE.exe from a terminal to see errors **")
     else:
         print()
         print("[FAIL] Build may have failed -- executable not found at expected path")
