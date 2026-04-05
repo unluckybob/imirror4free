@@ -140,6 +140,14 @@ class ValeriaSession:
         # Session start time for CMTime calculations
         self._start_time_ns = 0
 
+        # EAT! timestamp tracking for dynamic SKEW calculation
+        # AnyMiro computes clock skew from actual device vs local timestamps
+        self._first_eat_device_pts_ns: int = 0
+        self._last_eat_device_pts_ns: int = 0
+        self._first_eat_local_ns: int = 0
+        self._last_eat_local_ns: int = 0
+        self._eat_count: int = 0
+
         # Video format info (populated from CVRP)
         self._sps: Optional[bytes] = None
         self._pps: Optional[bytes] = None
@@ -311,8 +319,23 @@ class ValeriaSession:
         return build_rply(corr_id, payload)
 
     def _handle_skew(self, packet: Packet, corr_id: bytes) -> bytes:
-        logger.debug("SKEW: Reporting 48000.0 (aligned)")
-        payload = struct.pack("<Id", 0, 48000.0)
+        # Dynamic SKEW calculation from tracked EAT! timestamps.
+        # AnyMiro computes the ratio of device clock progress vs local clock
+        # progress, scaled to the audio timescale (48000 Hz).
+        # When clocks are perfectly aligned, skew == 48000.0.
+        skew = 48000.0  # Default: no drift at audio timescale
+        if self._eat_count >= 10 and self._last_eat_local_ns > self._first_eat_local_ns:
+            device_elapsed = self._last_eat_device_pts_ns - self._first_eat_device_pts_ns
+            local_elapsed = self._last_eat_local_ns - self._first_eat_local_ns
+            if local_elapsed > 0 and device_elapsed > 0:
+                skew = 48000.0 * (device_elapsed / local_elapsed)
+                logger.debug("SKEW: Dynamic = %.2f (device=%dns, local=%dns)",
+                             skew, device_elapsed, local_elapsed)
+            else:
+                logger.debug("SKEW: Default 48000.0 (insufficient elapsed time)")
+        else:
+            logger.debug("SKEW: Default 48000.0 (%d EAT! samples so far)", self._eat_count)
+        payload = struct.pack("<Id", 0, skew)
         return build_rply(corr_id, payload)
 
     def _handle_og(self, packet: Packet, corr_id: bytes) -> bytes:
@@ -381,9 +404,17 @@ class ValeriaSession:
             # Record stats
             self.stats.record_frame(len(h264_data), is_keyframe)
 
+            # Use device PTS from CMSampleBuffer when available — more accurate
+            # than local monotonic clock because it eliminates USB transfer jitter.
+            # AnyMiro uses OutputPresentationTimestamp from the CMSampleBuffer.
+            if parsed and parsed.pts_timescale > 0:
+                timestamp_ns = int(parsed.pts_value * 1_000_000_000 / parsed.pts_timescale)
+            else:
+                timestamp_ns = self._get_current_cmtime_ns()
+
             frame = VideoFrame(
                 data=h264_data,
-                timestamp_ns=self._get_current_cmtime_ns(),
+                timestamp_ns=timestamp_ns,
                 is_keyframe=is_keyframe,
                 width=self._video_width,
                 height=self._video_height,
@@ -392,27 +423,71 @@ class ValeriaSession:
 
     def _handle_eat(self, packet: Packet) -> None:
         if self._on_audio_sample:
-            pcm_data = extract_pcm_from_eat(packet.payload)
+            # Parse CMSampleBuffer for both PCM data and device PTS
+            parsed = parse_cmsamplebuffer(packet.payload)
+            if parsed and parsed.sample_data:
+                frame_size = 4  # stereo int16 (2 channels × 2 bytes)
+                aligned = (len(parsed.sample_data) // frame_size) * frame_size
+                pcm_data = parsed.sample_data[:aligned] if aligned > 0 else None
+            else:
+                pcm_data = extract_pcm_from_eat(packet.payload)
+                parsed = None
+
             if pcm_data:
                 self.stats.record_audio()
+
+                # Use device PTS from CMSampleBuffer when available
+                if parsed and parsed.pts_timescale > 0:
+                    timestamp_ns = int(parsed.pts_value * 1_000_000_000 / parsed.pts_timescale)
+                else:
+                    timestamp_ns = self._get_current_cmtime_ns()
+
+                # Track timestamps for dynamic SKEW calculation
+                local_now = time.monotonic_ns() - self._start_time_ns
+                if self._eat_count == 0:
+                    self._first_eat_device_pts_ns = timestamp_ns
+                    self._first_eat_local_ns = local_now
+                self._last_eat_device_pts_ns = timestamp_ns
+                self._last_eat_local_ns = local_now
+                self._eat_count += 1
+
                 sample = AudioSample(
                     data=pcm_data,
-                    timestamp_ns=self._get_current_cmtime_ns(),
+                    timestamp_ns=timestamp_ns,
                 )
                 self._on_audio_sample(sample)
 
     # ─── Session control ────────────────────────────────────────────
 
-    def build_start_streaming_packets(self) -> list[bytes]:
+    def build_hpd1_hpa1_packets(self) -> list[bytes]:
+        """Build HPD1 + HPA1 packets to start video and audio streaming.
+
+        AnyMiro sends these immediately after CWPA (audio clock negotiation),
+        not after CVRP. This reduces startup latency by letting the iPhone
+        prepare the streams while the rest of the handshake completes.
+
+        HPD1 advertises 4K (3840×2160) display capabilities — the iPhone
+        will stream at the highest resolution it can match.
+        """
         packets = []
-        # HPD1 now includes display capabilities dict
+        # HPD1 with 4K display capabilities dict
         packets.append(build_asyn_hpd1(
             clock_ref=b"\x01" + b"\x00" * 7,
-            width=1920, height=1080,
+            width=3840, height=2160,
         ))
         if self._device_audio_clock_ref != b"\x00" * 8:
-            # HPA1 now includes audio configuration dict
+            # HPA1 with full audio configuration dict
             packets.append(build_asyn_hpa1(self._device_audio_clock_ref))
+        return packets
+
+    def build_start_streaming_packets(self) -> list[bytes]:
+        """Build all packets to start streaming (HPD1 + HPA1 + NEED).
+
+        Kept for backward compatibility. Prefer calling
+        build_hpd1_hpa1_packets() early (after CWPA) and
+        build_need_packet() separately after CVRP.
+        """
+        packets = self.build_hpd1_hpa1_packets()
         if self._device_video_clock_ref != b"\x00" * 8:
             packets.append(build_asyn_need(self._device_video_clock_ref))
         return packets
@@ -446,5 +521,11 @@ class ValeriaSession:
         self._sps = None
         self._pps = None
         self._clock_counter = 0
+        # Reset EAT! tracking for SKEW
+        self._first_eat_device_pts_ns = 0
+        self._last_eat_device_pts_ns = 0
+        self._first_eat_local_ns = 0
+        self._last_eat_local_ns = 0
+        self._eat_count = 0
         self.stats = SessionStats()
         logger.info("Session reset")
