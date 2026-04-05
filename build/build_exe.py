@@ -34,7 +34,7 @@ cmd = [
     str(MAIN_SCRIPT),
 ]
 
-print(f"🔨 Building IMIRROR4FREE.exe...")
+print(f"[BUILD] Building IMIRROR4FREE.exe...")
 print(f"   Project root: {PROJECT_ROOT}")
 print(f"   Icon: {ICON_FILE}")
 print(f"   Main script: {MAIN_SCRIPT}")
