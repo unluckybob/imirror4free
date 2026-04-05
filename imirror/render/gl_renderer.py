@@ -87,12 +87,16 @@ class GLRenderer(QOpenGLWidget):
         self._vbo: int = 0
         self._program: int = 0
 
-        # Frame state
+        # Frame state (what the capture backend has sent us)
         self._current_frame: Optional[np.ndarray] = None
         self._frame_width: int = 0
         self._frame_height: int = 0
-        self._texture_initialized: bool = False
         self._needs_upload: bool = False
+
+        # Texture state (what the GPU texture is currently allocated as)
+        self._texture_initialized: bool = False
+        self._texture_width: int = 0
+        self._texture_height: int = 0
 
         # Performance
         self._render_count: int = 0
@@ -106,8 +110,8 @@ class GLRenderer(QOpenGLWidget):
     def set_frame(self, pixels: np.ndarray, width: int, height: int) -> None:
         """Update the frame to render.
 
-        This is called from the capture thread — we just store the reference
-        and flag for upload on the next paint event (which runs on the GL thread).
+        Called from the UI thread (via Qt signal). We store the reference
+        and flag for upload on the next paint event.
         """
         self._current_frame = pixels
         self._frame_width = width
@@ -214,7 +218,12 @@ class GLRenderer(QOpenGLWidget):
     # ─── Internal helpers ───────────────────────────────────────────
 
     def _upload_texture(self) -> None:
-        """Upload the current frame to the GPU texture."""
+        """Upload the current frame to the GPU texture.
+
+        Tracks the texture's allocated dimensions separately from the
+        incoming frame dimensions. When the device rotates (e.g. portrait
+        → landscape), the texture is reallocated to match the new size.
+        """
         frame = self._current_frame
         if frame is None:
             return
@@ -223,8 +232,10 @@ class GLRenderer(QOpenGLWidget):
 
         glBindTexture(GL_TEXTURE_2D, self._texture_id)
 
-        if not self._texture_initialized or w != self._frame_width or h != self._frame_height:
-            # First upload or size changed — allocate texture
+        # Reallocate texture if first upload OR dimensions changed
+        if (not self._texture_initialized
+                or w != self._texture_width
+                or h != self._texture_height):
             glTexImage2D(
                 GL_TEXTURE_2D, 0, GL_RGB,
                 w, h, 0,
@@ -232,8 +243,11 @@ class GLRenderer(QOpenGLWidget):
                 frame.tobytes(),
             )
             self._texture_initialized = True
+            self._texture_width = w
+            self._texture_height = h
+            logger.debug("Texture (re)allocated: %dx%d", w, h)
         else:
-            # Fast sub-image update (no reallocation)
+            # Fast sub-image update (no reallocation needed)
             glTexSubImage2D(
                 GL_TEXTURE_2D, 0,
                 0, 0, w, h,
