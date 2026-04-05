@@ -60,8 +60,11 @@ jobs:
         run: |
           $python = "dist\IMIRROR4FREE\python\python.exe"
 
-          # Install all requirements into the embeddable Python's site-packages
-          & $python -m pip install -r requirements.txt --no-warn-script-location
+          # Install setuptools first (not included in embeddable Python)
+          & $python -m pip install setuptools wheel --no-warn-script-location
+
+          # Install all requirements — prefer binary wheels to avoid compilation
+          & $python -m pip install -r requirements.txt --no-warn-script-location --prefer-binary
           if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies" }
 
           Write-Host "`nInstalled packages:"
