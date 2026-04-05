@@ -14,6 +14,12 @@ import sys
 import os
 import traceback
 from datetime import datetime
+from multiprocessing import freeze_support
+
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 
 def show_error_dialog(title: str, message: str) -> None:
@@ -48,6 +54,7 @@ def write_crash_log(error_text: str) -> str | None:
 
 
 if __name__ == "__main__":
+    freeze_support()
     try:
         from imirror.main import main
 

@@ -469,7 +469,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 time.sleep(0.01)
 
             self._streaming_started = True
-            logger.info("🎬 Streaming started — receiving video frames")
+            logger.info("[STREAM] Streaming started — receiving video frames")
 
         except Exception as e:
             logger.error("Failed to start streaming: %s", e)
