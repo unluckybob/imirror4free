@@ -72,6 +72,7 @@ class DriverStatus:
         self.iphone_detected = False
         self.libusb_accessible = False
         self.qt_config_active = False
+        self.device_pid: Optional[int] = None
 
     @property
     def ready_to_stream(self) -> bool:
@@ -874,6 +875,7 @@ def check_driver_status() -> DriverStatus:
     # Check if iPhone is detected (via any method)
     pid = detect_iphone_pid()
     status.iphone_detected = pid is not None
+    status.device_pid = pid
 
     if not status.iphone_detected:
         return status

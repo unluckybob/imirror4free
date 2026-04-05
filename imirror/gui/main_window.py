@@ -408,15 +408,16 @@ class MainWindow(QMainWindow):
             from imirror.usb.device_manager import DeviceManager
             if self._device_manager is None:
                 self._device_manager = DeviceManager()
+                self._device_manager.start()
 
-            device = self._device_manager.find_iphone()
+            device = self._device_manager.first_device
             if device:
-                self._waiting_status.setText(f"iPhone detected: {device.get('name', 'Unknown')}")
+                self._waiting_status.setText(f"iPhone detected: {device.display_name}")
                 self._start_capture(device)
         except Exception as e:
             logger.debug("Device check: %s", e)
 
-    def _start_capture(self, device: dict) -> None:
+    def _start_capture(self, device) -> None:
         """Start capturing from the detected device."""
         try:
             self._is_connected = True
@@ -429,7 +430,7 @@ class MainWindow(QMainWindow):
             self._action_record.setEnabled(True)
 
             # Start capture in background thread
-            udid = device.get("udid", "")
+            udid = device.udid
             backend = config.capture_backend
 
             thread = threading.Thread(
@@ -440,7 +441,7 @@ class MainWindow(QMainWindow):
             )
             thread.start()
 
-            self.status_update.emit(f"Connected to {device.get('name', 'iPhone')}")
+            self.status_update.emit(f"Connected to {device.display_name}")
 
         except Exception as e:
             logger.error("Failed to start capture: %s", e)
@@ -813,6 +814,10 @@ class MainWindow(QMainWindow):
         # Stop recording
         if self._is_recording and self._recorder:
             self._recorder.stop()
+
+        # Stop device manager
+        if self._device_manager:
+            self._device_manager.stop()
 
         # Stop capture
         if self._capture_backend:
