@@ -161,6 +161,9 @@ def main() -> int:
     args = parse_args()
     setup_logging(verbose=args.verbose, log_file=args.log_file)
 
+    # Load saved settings from disk before anything else
+    config.load()
+
     logger = logging.getLogger(__name__)
     logger.info("%s v%s starting...", __app_name__, __version__)
 

@@ -265,10 +265,22 @@ class ValeriaStreamCapture(CaptureBackend):
             from imirror.decode.video import VideoDecoder
             self._decoder = VideoDecoder()
 
-            # Phase 4: Initialize audio player
-            from imirror.decode.audio import AudioPlayer
-            self._audio = AudioPlayer()
-            self._audio.start()
+            # Phase 4: Initialize audio player (if enabled)
+            if config.audio_enabled:
+                from imirror.decode.audio import AudioPlayer
+                self._audio = AudioPlayer(
+                    sample_rate=config.audio_sample_rate,
+                    channels=config.audio_channels,
+                    buffer_ms=config.audio_buffer_ms,
+                )
+                self._audio.start()
+                logger.info(
+                    "Audio player started: %d Hz, %d ch, %d ms buffer",
+                    config.audio_sample_rate, config.audio_channels,
+                    config.audio_buffer_ms,
+                )
+            else:
+                logger.info("Audio playback disabled in config")
 
             # Phase 5: Run the protocol packet loop
             self._protocol_loop()
