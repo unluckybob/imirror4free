@@ -75,6 +75,15 @@ class Magic:
     SBUF = b"fubs"           # "sbuf" LE — CMSampleBuffer
     IDXK = b"kxdi"           # "idxk" LE — Index key (integer key dict)
 
+    # CMSampleBuffer section tags (also little-endian FourCC)
+    OPTS = b"stpo"           # "opts" LE — OutputPresentationTimestamp
+    SDAT = b"tads"           # "sdat" LE — SampleData (H.264 AVCC or PCM)
+    NSMP = b"pmsn"           # "nsmp" LE — NumSamples
+    STIA = b"aits"           # "stia" LE — SampleTimingInfoArray
+    SSIZ = b"ziss"           # "ssiz" LE — SampleSizes
+    SATT = b"ttas"           # "satt" LE — SampleAttachments
+    SARY = b"yras"           # "sary" LE — CreateIfNecessary
+
 
 class PacketType(Enum):
     """Top-level packet types."""
@@ -180,7 +189,7 @@ def read_packet(data: bytes) -> Optional[Packet]:
             length=length,
             packet_type=PacketType.PING,
             clock_ref=data[8:16] if len(data) >= 16 else b"\x00" * 8,
-            subtype=b"gnip"  # PING in wire format,
+            subtype=b"gnip",  # PING in wire format
             payload=data[16:length] if len(data) > 16 else b"",
             raw=data[:length],   # verbatim — echoed back as-is per Valeria spec
         )
@@ -590,13 +599,13 @@ def parse_cmsamplebuffer(payload: bytes) -> Optional[ParsedCMSampleBuffer]:
         data_start = pos + 8
         data_len = section_len - 8
 
-        if section_magic == b"stpo"  # "opts" LE:
+        if section_magic == Magic.OPTS:  # OutputPresentationTimestamp
             # OutputPresentationTimestamp: 24-byte CMTime at offset 0 within section data
             if data_len >= 24:
                 result.pts_value = struct.unpack_from("<q", payload, data_start)[0]
                 result.pts_timescale = struct.unpack_from("<i", payload, data_start + 8)[0]
 
-        elif section_magic == b"tads"  # "sdat" LE:
+        elif section_magic == Magic.SDAT:  # SampleData
             # SampleData — the actual H.264 AVCC or raw PCM bytes
             result.sample_data = payload[data_start:data_start + data_len]
 
@@ -605,7 +614,7 @@ def parse_cmsamplebuffer(payload: bytes) -> Optional[ParsedCMSampleBuffer]:
             result.has_format_description = True
             result.format_description_bytes = payload[pos:pos + section_len]
 
-        elif section_magic == b"pmsn"  # "nsmp" LE:
+        elif section_magic == Magic.NSMP:  # NumSamples
             # NumSamples
             if data_len >= 4:
                 result.num_samples = struct.unpack_from("<I", payload, data_start)[0]
