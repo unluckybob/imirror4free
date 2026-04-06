@@ -32,7 +32,7 @@ from PyQt6.QtGui import QAction, QKeySequence, QIcon, QImage, QPixmap
 
 from imirror import __version__, __app_name__
 from imirror.config import config, CaptureBackendType, DecoderType, RecordingFormat
-from imirror.gui.styles import DARK_THEME, WAITING_SCREEN_STYLE
+from imirror.gui.styles import DARK_THEME, WAITING_SCREEN_STYLE, TOOLBAR_STYLE, SETTINGS_DIALOG_STYLE
 from imirror.gui.overlay import FPSOverlay
 
 try:
@@ -58,6 +58,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{config.window_title} v{__version__}")
         self.resize(config.default_window_width, config.default_window_height)
         self.setMinimumSize(320, 480)
+
+        # Set window icon
+        icon_path = self._resource_path(os.path.join("assets", "icon.ico"))
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         # Apply dark theme
         self.setStyleSheet(DARK_THEME)
@@ -106,6 +111,15 @@ class MainWindow(QMainWindow):
             self._toggle_fps_overlay()
 
         logger.info("Main window initialized")
+
+    @staticmethod
+    def _resource_path(relative_path: str) -> str:
+        """Get path to resource, works for dev and PyInstaller."""
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, relative_path)
 
     # ─── UI Construction ────────────────────────────────────────────
 
@@ -212,29 +226,7 @@ class MainWindow(QMainWindow):
         self._toolbar = QToolBar("Controls")
         self._toolbar.setMovable(False)
         self._toolbar.setIconSize(QSize(20, 20))
-        self._toolbar.setStyleSheet("""
-            QToolBar {
-                background-color: #1A1A1A;
-                border-bottom: 1px solid #2D2D2D;
-                padding: 4px;
-                spacing: 8px;
-            }
-            QToolButton {
-                background-color: transparent;
-                border: 1px solid transparent;
-                border-radius: 4px;
-                padding: 6px 12px;
-                color: #E0E0E0;
-                font-size: 12px;
-            }
-            QToolButton:hover {
-                background-color: #2D2D2D;
-                border-color: #404040;
-            }
-            QToolButton:pressed {
-                background-color: #1A1A1A;
-            }
-        """)
+        self._toolbar.setStyleSheet(TOOLBAR_STYLE)
 
         self._btn_screenshot = QAction("📸 Screenshot", self)
         self._btn_screenshot.triggered.connect(self._take_screenshot)
@@ -256,24 +248,24 @@ class MainWindow(QMainWindow):
         self._volume_slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 height: 4px;
-                background: #2D2D2D;
+                background: #2C2C2E;
                 border-radius: 2px;
             }
             QSlider::handle:horizontal {
-                background: #0078D4;
-                width: 12px;
-                margin: -4px 0;
-                border-radius: 6px;
+                background: #FFFFFF;
+                width: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
             }
             QSlider::sub-page:horizontal {
-                background: #0078D4;
+                background: #B5342B;
                 border-radius: 2px;
             }
         """)
         self._volume_slider.valueChanged.connect(self._on_volume_changed)
 
-        vol_label = QLabel("🔊")
-        vol_label.setStyleSheet("color: #888; padding: 0 4px;")
+        vol_label = QLabel("♪")
+        vol_label.setStyleSheet("color: #8E8E93; padding: 0 6px; font-size: 14px;")
         self._toolbar.addWidget(vol_label)
         self._toolbar.addWidget(self._volume_slider)
 
@@ -327,24 +319,34 @@ class MainWindow(QMainWindow):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(16)
 
-        # Icon
-        icon_label = QLabel("📱")
+        # Icon — load the actual app icon
+        icon_label = QLabel()
         icon_label.setObjectName("waitingIcon")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet("font-size: 64px;")
+        _icon_path = self._resource_path(os.path.join("assets", "icon.ico"))
+        if os.path.exists(_icon_path):
+            _pixmap = QPixmap(_icon_path).scaled(
+                96, 96,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            icon_label.setPixmap(_pixmap)
+        else:
+            icon_label.setText("⬡")
+            icon_label.setStyleSheet("font-size: 64px; color: #B5342B;")
         layout.addWidget(icon_label)
 
         # Title
         title_label = QLabel(f"{__app_name__}")
         title_label.setObjectName("waitingTitle")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-size: 24px; font-weight: 600; color: #FFF;")
+        title_label.setStyleSheet("font-size: 28px; font-weight: 300; color: #FFFFFF;")
         layout.addWidget(title_label)
 
         # Version
         version_label = QLabel(f"v{__version__}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version_label.setStyleSheet("font-size: 12px; color: #666;")
+        version_label.setStyleSheet("font-size: 12px; color: #636366;")
         layout.addWidget(version_label)
 
         layout.addSpacing(16)
@@ -353,19 +355,19 @@ class MainWindow(QMainWindow):
         self._waiting_status = QLabel("Waiting for iPhone...")
         self._waiting_status.setObjectName("waitingSubtitle")
         self._waiting_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._waiting_status.setStyleSheet("font-size: 14px; color: #888;")
+        self._waiting_status.setStyleSheet("font-size: 14px; color: #8E8E93;")
         layout.addWidget(self._waiting_status)
 
         layout.addSpacing(8)
 
         # Instructions
         instructions = QLabel(
-            "1. Connect your iPhone via USB cable\n"
-            "2. Tap 'Trust' on your iPhone if prompted\n"
-            "3. Make sure iTunes is installed"
+            "1.  Connect your iPhone via USB cable\n"
+            "2.  Tap 'Trust' on your iPhone if prompted\n"
+            "3.  Make sure iTunes is installed"
         )
         instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        instructions.setStyleSheet("font-size: 12px; color: #666; line-height: 1.6;")
+        instructions.setStyleSheet("font-size: 12px; color: #636366;")
         layout.addWidget(instructions)
 
         layout.addSpacing(16)
@@ -375,16 +377,16 @@ class MainWindow(QMainWindow):
         self._btn_install_driver.setObjectName("primaryButton")
         self._btn_install_driver.setStyleSheet("""
             QPushButton {
-                background-color: #0078D4;
-                color: #FFF;
+                background-color: #B5342B;
+                color: #FFFFFF;
                 border: none;
-                border-radius: 6px;
-                padding: 12px 24px;
+                border-radius: 8px;
+                padding: 12px 28px;
                 font-size: 14px;
                 font-weight: 600;
             }
-            QPushButton:hover { background-color: #1A8AE8; }
-            QPushButton:pressed { background-color: #006ABE; }
+            QPushButton:hover { background-color: #CF3F35; }
+            QPushButton:pressed { background-color: #8E2A23; }
         """)
         self._btn_install_driver.clicked.connect(self._install_driver)
         self._btn_install_driver.setVisible(False)
@@ -393,7 +395,7 @@ class MainWindow(QMainWindow):
         # Driver status label
         self._driver_status_label = QLabel("")
         self._driver_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._driver_status_label.setStyleSheet("font-size: 11px; color: #666;")
+        self._driver_status_label.setStyleSheet("font-size: 11px; color: #636366;")
         layout.addWidget(self._driver_status_label)
 
         return page
@@ -407,7 +409,7 @@ class MainWindow(QMainWindow):
         self._statusbar.addWidget(self._status_label, stretch=1)
 
         self._recording_label = QLabel("")
-        self._recording_label.setStyleSheet("color: #FF4444; font-weight: bold;")
+        self._recording_label.setStyleSheet("color: #B5342B; font-weight: bold;")
         self._statusbar.addPermanentWidget(self._recording_label)
 
         self._fps_status_label = QLabel("")
@@ -862,14 +864,27 @@ class MainWindow(QMainWindow):
         os.startfile(config.screenshot_output_dir) if sys.platform == "win32" else None
 
     def _show_about(self) -> None:
-        QMessageBox.about(
-            self, f"About {__app_name__}",
-            f"<h2>{__app_name__} v{__version__}</h2>"
-            f"<p>Free iPhone USB Screen Mirror for Windows</p>"
-            f"<p>Full native resolution • Low latency • No watermarks</p>"
-            f"<p><a href='https://github.com/unluckybob/imirror4free'>GitHub</a></p>"
-            f"<p>License: GPL-3.0</p>"
+        about_box = QMessageBox(self)
+        about_box.setWindowTitle(f"About {__app_name__}")
+        about_box.setTextFormat(Qt.TextFormat.RichText)
+        about_box.setText(
+            f"<h2 style='font-weight: 300; color: #FFFFFF;'>{__app_name__}</h2>"
+            f"<p style='color: #8E8E93;'>Version {__version__}</p>"
+            f"<p style='color: #FFFFFF;'>Free iPhone USB Screen Mirror for Windows</p>"
+            f"<p style='color: #8E8E93;'>Full native resolution · Low latency · No watermarks</p>"
+            f"<p><a href='https://github.com/unluckybob/imirror4free' "
+            f"style='color: #B5342B;'>GitHub Repository</a></p>"
+            f"<p style='color: #636366;'>License: GPL-3.0</p>"
         )
+        _about_icon_path = self._resource_path(os.path.join("assets", "icon.ico"))
+        if os.path.exists(_about_icon_path):
+            _about_pixmap = QPixmap(_about_icon_path).scaled(
+                64, 64,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            about_box.setIconPixmap(_about_pixmap)
+        about_box.exec()
 
     # ─── Lifecycle ──────────────────────────────────────────────────
 
@@ -927,9 +942,10 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumSize(400, 500)
-        self.setStyleSheet(DARK_THEME)
+        self.setStyleSheet(SETTINGS_DIALOG_STYLE)
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
         # ── Capture ────────────────────────────
         capture_group = QGroupBox("Capture")
