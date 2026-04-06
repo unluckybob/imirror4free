@@ -90,6 +90,7 @@ class ValeriaStreamCapture(CaptureBackend):
         self._handshake_done = threading.Event()
         self._streaming_started = False
         self._hpd1_hpa1_sent = False
+        self._cvrp_received = False
         self._init_error: Optional[str] = None
         self._error_type: str = StreamError.GENERIC
         self._pending_need: bool = False
@@ -467,6 +468,7 @@ class ValeriaStreamCapture(CaptureBackend):
 
                     elif packet.subtype == Magic.CVRP:
                         logger.info("CVRP received — video format negotiated")
+                        self._cvrp_received = True
 
                         if self._decoder and not self._decoder.is_initialized:
                             extradata = self._session.get_decoder_extradata()
@@ -479,12 +481,22 @@ class ValeriaStreamCapture(CaptureBackend):
                             else:
                                 logger.warning("Decoder initialized WITHOUT SPS/PPS — may fail until keyframe")
 
-                        # HPD1/HPA1 already sent after CWPA — just send NEED now
-                        if not self._streaming_started:
+                        # AnyMiro workflow: NEED is sent after CLOK, not after CVRP.
+                        # The iPhone sends CLOK right after CVRP, and only then
+                        # expects the NEED request. Defer to CLOK handler below.
+                        if not self._hpd1_hpa1_sent:
+                            # Fallback if CWPA was missed — send everything now
+                            self._start_streaming()
+
+                    elif packet.subtype == Magic.CLOK:
+                        logger.info("CLOK received — clock created")
+                        # AnyMiro sends NEED after the first CLOK that follows
+                        # CVRP (workflow step 20). This is when the iPhone is
+                        # fully ready to deliver video frames.
+                        if self._cvrp_received and not self._streaming_started:
                             if self._hpd1_hpa1_sent:
                                 self._start_streaming_need_only()
                             else:
-                                # Fallback if CWPA was missed
                                 self._start_streaming()
 
             # ── Periodic NEED keepalive ─────────────────────────────
@@ -600,6 +612,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 self._session.reset()
             self._streaming_started = False
             self._hpd1_hpa1_sent = False
+            self._cvrp_received = False
             self._handshake_done.clear()
             return True
 

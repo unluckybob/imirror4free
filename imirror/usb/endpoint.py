@@ -213,8 +213,10 @@ class USBEndpoint:
 
         logger.info("Waiting up to %.0fs for iPhone to re-enumerate...", timeout)
 
-        # First wait for the device to disappear
-        time.sleep(1.0)
+        # Brief pause for the iPhone to begin re-enumeration.
+        # USB trace shows re-enumeration completes in ~2.4s; the device
+        # disappears almost immediately, so 0.3s is enough before polling.
+        time.sleep(0.3)
 
         start = time.monotonic()
         attempt = 0
@@ -311,6 +313,23 @@ class USBEndpoint:
         except Exception as e:
             logger.error("Failed to claim interface %d: %s", intf_num, e)
             return False
+
+        # Select alternate setting — AnyMiro's USB trace shows 4 ×
+        # SELECT_INTERFACE calls.  Explicitly selecting alt setting 0
+        # ensures the Valeria bulk endpoints are activated and matches
+        # the observed AnyMiro behaviour.
+        try:
+            alt_setting = self._interface.bAlternateSetting
+            self._dev.set_interface_altsetting(
+                interface=intf_num,
+                alternate_setting=alt_setting,
+            )
+            logger.debug(
+                "Set alternate setting %d on interface %d",
+                alt_setting, intf_num,
+            )
+        except Exception as e:
+            logger.debug("set_interface_altsetting: %s (non-fatal)", e)
 
         # Find bulk IN and OUT endpoints
         self._ep_in = usb.util.find_descriptor(

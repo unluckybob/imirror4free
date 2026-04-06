@@ -432,33 +432,41 @@ class ValeriaSession:
     def _handle_feed(self, packet: Packet) -> None:
         parsed = parse_cmsamplebuffer(packet.payload)
         if not parsed or not parsed.sample_data:
-            # Fallback to old method
-            h264_data = extract_h264_from_feed(packet.payload)
-        else:
-            # Update SPS/PPS from FormatDescription if present (keyframe)
-            if parsed.has_format_description and parsed.format_description_bytes:
-                sps, pps = extract_sps_pps_from_fdsc(parsed.format_description_bytes)
-                if sps:
-                    self._sps = sps
-                    logger.debug("Updated SPS from FEED FormatDescription (%d bytes)", len(sps))
-                if pps:
-                    self._pps = pps
-                    logger.debug("Updated PPS from FEED FormatDescription (%d bytes)", len(pps))
+            logger.debug("FEED: No CMSampleBuffer/sdat — skipping (%d bytes)", len(packet.payload))
+            return
 
-            h264_data = avcc_to_annex_b(parsed.sample_data)
+        # Update SPS/PPS from FormatDescription if present (keyframes).
+        # AnyMiro checks HasFormatDescription on every CMSampleBuffer and
+        # extracts fresh SPS/PPS from the fdsc section.  This is critical
+        # because the iPhone can change resolution mid-stream (e.g. during
+        # orientation change) and the new parameters appear here.
+        is_keyframe = False
+        if parsed.has_format_description and parsed.format_description_bytes:
+            sps, pps = extract_sps_pps_from_fdsc(parsed.format_description_bytes)
+            if sps:
+                self._sps = sps
+                logger.debug("Updated SPS from FEED FormatDescription (%d bytes)", len(sps))
+            if pps:
+                self._pps = pps
+                logger.debug("Updated PPS from FEED FormatDescription (%d bytes)", len(pps))
+            is_keyframe = True  # fdsc presence == keyframe
+
+        h264_data = avcc_to_annex_b(parsed.sample_data)
 
         if h264_data and self._on_video_frame:
-            # Detect keyframes by checking for IDR NAL type (5)
-            is_keyframe = False
-            if len(h264_data) > 4:
-                for i in range(min(len(h264_data) - 4, 256)):  # Only scan first 256 bytes
+            # If we didn't already detect keyframe via fdsc, check NAL types
+            if not is_keyframe and len(h264_data) > 4:
+                for i in range(min(len(h264_data) - 4, 256)):
                     if h264_data[i:i+4] == b"\x00\x00\x00\x01":
                         nal_type = h264_data[i+4] & 0x1F if i + 4 < len(h264_data) else 0
                         if nal_type == 5:  # IDR
                             is_keyframe = True
                             break
 
-            # Prepend SPS/PPS to keyframes for decoder robustness
+            # Prepend SPS/PPS to keyframes for decoder robustness.
+            # Standard H.264 order: SPS → PPS → IDR (FFmpeg expects this).
+            # AnyMiro uses PPS → SPS for its GStreamer pipeline, but both
+            # orders work — the key is that both NALUs appear before the IDR.
             if is_keyframe and self._sps and self._pps:
                 sps_pps = (
                     b"\x00\x00\x00\x01" + self._sps
