@@ -369,7 +369,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 return False
 
             # Step 3: Wait for device to reconnect with AV endpoints
-            if not self._endpoint.wait_for_reenumeration(timeout=15.0):
+            if not self._endpoint.wait_for_reenumeration(timeout=30.0):
                 self._signal_error(
                     "iPhone didn't reconnect after AV mode enable. "
                     "Try unplugging and replugging your iPhone.",
@@ -624,12 +624,13 @@ class ValeriaStreamCapture(CaptureBackend):
 
         Returns True if recovery succeeded and the stream can continue.
 
-        Fixed: the old code called has_qt_config() before set_configuration(5),
-        which always returned False on Windows/WinUSB — same root cause as the
-        original wait_for_reenumeration timeout (Bug 1).  The corrected approach
-        calls claim_av_endpoints() directly (which does set_configuration(5)
-        internally) and only re-enables QT config if claiming fails (e.g. the
-        iPhone was unplugged and replugged, losing Config 5).
+        claim_av_endpoints() now guards set_configuration(5) internally —
+        it only calls set_configuration() if has_qt_config() returns False.
+        This means calling claim_av_endpoints() here is safe even when QT
+        config is already active: it will skip the reset, find the interface,
+        and claim it without disrupting the iPhone's Valeria state.
+        If claiming fails (e.g. iPhone was unplugged and replugged, losing
+        Config 5), we re-enable QT config and wait for re-enumeration.
         """
         logger.info("Attempting USB recovery...")
         try:
@@ -660,7 +661,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 if not self._endpoint.enable_qt_config():
                     logger.error("USB recovery: Cannot re-enable QT config")
                     return False
-                if not self._endpoint.wait_for_reenumeration(timeout=10.0):
+                if not self._endpoint.wait_for_reenumeration(timeout=20.0):
                     logger.error("USB recovery: Re-enumeration timed out")
                     return False
                 if not self._endpoint.claim_av_endpoints():
