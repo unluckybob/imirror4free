@@ -50,7 +50,7 @@ class _Config:
 
         # ── Valeria stream backend ──────────────────────────────────
         # USB bulk I/O tuning
-        self.usb_read_size: int = 131072         # Bytes per bulk read (128KB for 4K throughput)
+        self.usb_read_size: int = 1048576        # Bytes per bulk read (1MB — handles large 4K keyframes in single read)
         self.usb_read_timeout_ms: int = 100      # Timeout per read (ms)
         self.usb_write_timeout_ms: int = 500     # Timeout per write (ms)
 
