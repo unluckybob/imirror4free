@@ -289,8 +289,47 @@ class ValeriaStreamCapture(CaptureBackend):
     def _stream_loop(self) -> None:
         """Main streaming thread — full USB AV communication lifecycle."""
         try:
-            # Phase 1: Initialize USB connection
+            # Pre-init audio concurrently with USB setup.
+            # The iPhone sends PING immediately after the AV interface is claimed.
+            # PortAudio device enumeration takes ~8 s; if we init audio *after*
+            # claiming the interface, PING arrives during that window and is lost
+            # (nobody reads the bulk-IN endpoint), so the iPhone never gets PONG,
+            # stalls the endpoint, and we see [Errno 32] Pipe error ~3 min later.
+            # Starting audio on a background thread means it is ready (or nearly
+            # ready) by the time we finish the 8-15 s QT-enable + re-enum sequence,
+            # so _protocol_loop() starts reading within milliseconds of the claim.
+            _audio_ready = threading.Event()
+
+            def _pre_init_audio():
+                try:
+                    if config.audio_enabled:
+                        from imirror.decode.audio import AudioPlayer
+                        self._audio = AudioPlayer(
+                            sample_rate=config.audio_sample_rate,
+                            channels=config.audio_channels,
+                            buffer_ms=config.audio_buffer_ms,
+                        )
+                        self._audio.start()
+                        logger.info(
+                            "Audio player started: %d Hz, %d ch, %d ms buffer",
+                            config.audio_sample_rate, config.audio_channels,
+                            config.audio_buffer_ms,
+                        )
+                    else:
+                        logger.info("Audio playback disabled in config")
+                except Exception as _ae:
+                    logger.warning("Audio pre-init failed: %s", _ae)
+                finally:
+                    _audio_ready.set()
+
+            _audio_thread = threading.Thread(
+                target=_pre_init_audio, daemon=True, name="audio-preinit"
+            )
+            _audio_thread.start()
+
+            # Phase 1: Initialize USB connection (runs concurrently with audio)
             if not self._init_usb():
+                _audio_ready.wait(timeout=15.0)  # let audio thread clean up
                 return
 
             # Phase 2: Create protocol session
@@ -303,22 +342,10 @@ class ValeriaStreamCapture(CaptureBackend):
             from imirror.decode.video import VideoDecoder
             self._decoder = VideoDecoder()
 
-            # Phase 4: Initialize audio player (if enabled)
-            if config.audio_enabled:
-                from imirror.decode.audio import AudioPlayer
-                self._audio = AudioPlayer(
-                    sample_rate=config.audio_sample_rate,
-                    channels=config.audio_channels,
-                    buffer_ms=config.audio_buffer_ms,
-                )
-                self._audio.start()
-                logger.info(
-                    "Audio player started: %d Hz, %d ch, %d ms buffer",
-                    config.audio_sample_rate, config.audio_channels,
-                    config.audio_buffer_ms,
-                )
-            else:
-                logger.info("Audio playback disabled in config")
+            # Phase 4: Ensure audio is ready before entering the protocol loop.
+            # USB setup typically takes 8-15 s so audio is usually done by now;
+            # this join is a short (≤5 s) safety wait for slower machines.
+            _audio_ready.wait(timeout=5.0)
 
             # Phase 5: Run the protocol packet loop
             self._protocol_loop()
@@ -380,7 +407,25 @@ class ValeriaStreamCapture(CaptureBackend):
             logger.info("USB: QT AV configuration already active")
 
         # Step 4: Claim the AV bulk endpoints
-        if not self._endpoint.claim_av_endpoints():
+        _claimed = self._endpoint.claim_av_endpoints()
+
+        if not _claimed and self._endpoint.has_qt_config():
+            # QT config is active but claim still failed — this happens after a
+            # [Errno 32] Pipe error where WinUSB loses its driver binding even
+            # though the iPhone stays in Config 5.  Force a full QT re-enable:
+            # resend the control transfer so the iPhone re-enumerates cleanly,
+            # which gives WinUSB a completely fresh binding opportunity.
+            logger.info(
+                "USB: Claim failed with QT config active — forcing full QT "
+                "re-enable to recover WinUSB binding..."
+            )
+            if self._endpoint.enable_qt_config():
+                if self._endpoint.wait_for_reenumeration(timeout=30.0):
+                    _claimed = self._endpoint.claim_av_endpoints()
+                    if _claimed:
+                        logger.info("USB: AV endpoints ready after forced re-enable")
+
+        if not _claimed:
             self._signal_error(
                 "Cannot claim AV endpoints — another program may be using them, "
                 "or the mirror driver needs to be reinstalled.",
