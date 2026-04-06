@@ -237,6 +237,23 @@ class USBEndpoint:
 
             self._dev = devices[0]
 
+            # On Windows/WinUSB, Configuration 5 (QT AV mode) is only
+            # visible to pyusb after explicitly selecting it via
+            # set_configuration().  Without this call, has_qt_config()
+            # iterates only the default configuration and never finds
+            # SubClass 0x2A — causing the 15 s timeout seen in the log.
+            try:
+                self._dev.set_configuration(QT_CONFIG_VALUE)
+                logger.debug(
+                    "Re-enum attempt %d: set_configuration(%d) OK",
+                    attempt, QT_CONFIG_VALUE,
+                )
+            except Exception as set_cfg_err:
+                logger.debug(
+                    "Re-enum attempt %d: set_configuration(%d): %s",
+                    attempt, QT_CONFIG_VALUE, set_cfg_err,
+                )
+
             if self.has_qt_config():
                 logger.info(
                     "Re-enumeration complete (attempt %d, %.1fs) — QT AV config active",
@@ -266,7 +283,20 @@ class USBEndpoint:
         if not self._dev:
             return False
 
-        # Find the AV interface
+        # ── Step 1: Activate QT AV configuration ────────────────────────
+        # Configuration 5 MUST be set active before the Valeria interface
+        # (SubClass 0x2A) is enumerable and claimable.  Searching for the
+        # interface before set_configuration() means pyusb only sees the
+        # default config's interfaces and finds nothing.
+        try:
+            self._dev.set_configuration(QT_CONFIG_VALUE)
+            logger.debug("Set USB configuration %d (QT AV mode)", QT_CONFIG_VALUE)
+        except Exception as e:
+            logger.debug(
+                "set_configuration(%d): %s (may already be set)", QT_CONFIG_VALUE, e
+            )
+
+        # ── Step 2: Find the AV interface ───────────────────────────────
         for cfg in self._dev:
             for intf in cfg:
                 if intf.bInterfaceSubClass == QT_SUBCLASS:
@@ -293,18 +323,6 @@ class USBEndpoint:
                 logger.info("Detached kernel driver from interface %d", intf_num)
         except (NotImplementedError, Exception):
             pass  # Not supported on Windows
-
-        # Set configuration if needed
-        try:
-            cfg_value = self._interface.device.configurations()[0].bConfigurationValue
-            for cfg in self._dev:
-                if self._interface in cfg:
-                    cfg_value = cfg.bConfigurationValue
-                    break
-            self._dev.set_configuration(cfg_value)
-            logger.debug("Set USB configuration %d", cfg_value)
-        except Exception as e:
-            logger.debug("set_configuration: %s (may already be set)", e)
 
         # Claim the interface
         try:
