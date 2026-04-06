@@ -248,7 +248,7 @@ class GLRenderer(QOpenGLWidget):
                 GL_TEXTURE_2D, 0, GL_RGB,
                 w, h, 0,
                 GL_RGB, GL_UNSIGNED_BYTE,
-                frame.tobytes(),
+                frame,  # zero-copy: numpy buffer passed directly to GPU
             )
             self._texture_initialized = True
             self._texture_width = w
@@ -261,7 +261,7 @@ class GLRenderer(QOpenGLWidget):
                 GL_TEXTURE_2D, 0,
                 0, 0, w, h,
                 GL_RGB, GL_UNSIGNED_BYTE,
-                frame.tobytes(),
+                frame,  # zero-copy: numpy buffer passed directly to GPU
             )
 
     def _update_quad_vertices(self) -> None:
