@@ -1,0 +1,134 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC compiler
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Create output directory
+        run: mkdir dist\IMIRROR4FREE
+
+      - name: Download Python 3.12 Embeddable (signed by PSF)
+        shell: pwsh
+        run: |
+          $url = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip"
+          Write-Host "Downloading official Python embeddable from python.org..."
+          Invoke-WebRequest -Uri $url -OutFile python-embed.zip
+          Expand-Archive python-embed.zip -DestinationPath dist\IMIRROR4FREE\python
+          Write-Host "Python DLLs are signed by Python Software Foundation - Windows will trust them"
+
+      - name: Configure Python paths
+        shell: pwsh
+        run: |
+          # Rewrite the ._pth file to enable pip and add our source code path
+          # IMPORTANT: No leading whitespace — Python's ._pth parser is strict
+          $pthContent = @"
+python312.zip
+.
+..
+Lib\site-packages
+import site
+"@
+          Set-Content "dist\IMIRROR4FREE\python\python312._pth" $pthContent
+          Write-Host "=== python312._pth contents ==="
+          Get-Content "dist\IMIRROR4FREE\python\python312._pth"
+
+      - name: Install pip
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile get-pip.py
+          & dist\IMIRROR4FREE\python\python.exe get-pip.py --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install pip" }
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          & dist\IMIRROR4FREE\python\python.exe -m pip install setuptools wheel --no-warn-script-location
+          & dist\IMIRROR4FREE\python\python.exe -m pip install --prefer-binary -r requirements.txt --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies" }
+
+      - name: Copy app source code
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse imirror dist\IMIRROR4FREE\imirror
+          Write-Host "Source code copied to dist\IMIRROR4FREE\imirror\"
+
+      - name: Copy assets (icons, images)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse assets dist\IMIRROR4FREE\assets
+          Write-Host "Assets copied to dist\IMIRROR4FREE\assets\"
+          Get-ChildItem dist\IMIRROR4FREE\assets | Format-Table Name, Length
+
+      - name: Compile native launcher
+        shell: pwsh
+        run: |
+          cl.exe /nologo /O2 /Fe:dist\IMIRROR4FREE\IMIRROR4FREE.exe build\launcher.c kernel32.lib
+          if ($LASTEXITCODE -ne 0) { throw "Failed to compile launcher" }
+          Write-Host "Launcher compiled: IMIRROR4FREE.exe"
+
+      - name: Create debug launcher
+        shell: pwsh
+        run: |
+          $debugBat = @"
+@echo off
+cd /d "%~dp0"
+echo =============================================
+echo   IMIRROR4FREE - Debug Mode
+echo =============================================
+echo.
+python\python.exe -m imirror.main
+echo.
+echo =============================================
+echo   App exited with code %ERRORLEVEL%
+echo =============================================
+echo.
+pause
+"@
+          Set-Content -Path "dist\IMIRROR4FREE\debug.bat" -Value $debugBat -Encoding ASCII
+
+      - name: Verify build
+        shell: pwsh
+        run: |
+          Write-Host "=== Build contents ==="
+          Get-ChildItem dist\IMIRROR4FREE -Depth 0 | Format-Table Name, Length
+          Write-Host ""
+          Write-Host "=== Assets ==="
+          Get-ChildItem dist\IMIRROR4FREE\assets | Format-Table Name, Length
+          Write-Host ""
+          Write-Host "=== Python DLL signature check ==="
+          $sig = Get-AuthenticodeSignature "dist\IMIRROR4FREE\python\python312.dll"
+          Write-Host "python312.dll signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
+          Write-Host ""
+          Write-Host "=== Quick import test ==="
+          & dist\IMIRROR4FREE\python\python.exe -c "import imirror; print(f'iMirror4Free v{imirror.__version__} — import OK')"
+          if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Import test failed" }
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y
+
+      - name: Build NSIS Installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" build\installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "NSIS build failed" }
+
+      - name: Upload Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: IMIRROR4FREE-Setup
+          path: dist\IMIRROR4FREE-Setup.exe
+
+      - name: Upload Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: IMIRROR4FREE-Portable
+          path: dist\IMIRROR4FREE\
