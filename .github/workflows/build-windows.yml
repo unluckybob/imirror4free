@@ -28,14 +28,16 @@ jobs:
         shell: pwsh
         run: |
           # Rewrite the ._pth file to enable pip and add our source code path
+          # IMPORTANT: No leading whitespace — Python's ._pth parser is strict
           $pthContent = @"
-          python312.zip
-          .
-          ..
-          Lib\site-packages
-          import site
-          "@
-          Set-Content "dist\IMIRROR4FREE\python\python312._pth" $pthContent.Trim()
+python312.zip
+.
+..
+Lib\site-packages
+import site
+"@
+          Set-Content "dist\IMIRROR4FREE\python\python312._pth" $pthContent
+          Write-Host "=== python312._pth contents ==="
           Get-Content "dist\IMIRROR4FREE\python\python312._pth"
 
       - name: Install pip
@@ -57,6 +59,13 @@ jobs:
         run: |
           Copy-Item -Recurse imirror dist\IMIRROR4FREE\imirror
           Write-Host "Source code copied to dist\IMIRROR4FREE\imirror\"
+
+      - name: Copy assets (icons, images)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse assets dist\IMIRROR4FREE\assets
+          Write-Host "Assets copied to dist\IMIRROR4FREE\assets\"
+          Get-ChildItem dist\IMIRROR4FREE\assets | Format-Table Name, Length
 
       - name: Compile native launcher
         shell: pwsh
@@ -84,15 +93,22 @@ jobs:
           pause
           "@ | Set-Content -Path "dist\IMIRROR4FREE\debug.bat" -Encoding ASCII
 
-      - name: Show build contents
+      - name: Verify build
         shell: pwsh
         run: |
           Write-Host "=== Build contents ==="
           Get-ChildItem dist\IMIRROR4FREE -Depth 0 | Format-Table Name, Length
           Write-Host ""
+          Write-Host "=== Assets ==="
+          Get-ChildItem dist\IMIRROR4FREE\assets | Format-Table Name, Length
+          Write-Host ""
           Write-Host "=== Python DLL signature check ==="
           $sig = Get-AuthenticodeSignature "dist\IMIRROR4FREE\python\python312.dll"
           Write-Host "python312.dll signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
+          Write-Host ""
+          Write-Host "=== Quick import test ==="
+          & dist\IMIRROR4FREE\python\python.exe -c "import imirror; print(f'iMirror4Free v{imirror.__version__} — import OK')"
+          if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Import test failed" }
 
       - name: Install NSIS
         shell: pwsh
