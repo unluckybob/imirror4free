@@ -85,6 +85,7 @@ class Packet:
     clock_ref: bytes        # 8 bytes
     subtype: bytes          # 4 bytes
     payload: bytes          # remaining bytes
+    raw: Optional[bytes] = None   # verbatim wire bytes (set for PING so echo is exact)
 
     @property
     def correlation_id(self) -> Optional[bytes]:
@@ -166,7 +167,7 @@ def read_packet(data: bytes) -> Optional[Packet]:
 
     magic = data[4:8]
 
-    # PING packets are simpler
+    # PING packets are simpler — store raw bytes so the handler can echo them exactly
     if magic == Magic.PING:
         return Packet(
             length=length,
@@ -174,6 +175,7 @@ def read_packet(data: bytes) -> Optional[Packet]:
             clock_ref=data[8:16] if len(data) >= 16 else b"\x00" * 8,
             subtype=b"ping",
             payload=data[16:length] if len(data) > 16 else b"",
+            raw=data[:length],   # verbatim — echoed back as-is per Valeria spec
         )
 
     # All other packets: magic + clock_ref(8) + subtype(4) + payload
