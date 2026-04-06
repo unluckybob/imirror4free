@@ -85,9 +85,15 @@ class DriverStatus:
         return self.iphone_detected and not self.libusb_accessible and not self.installed
 
     def summary(self) -> str:
+        # Show "Driver installed: [OK]" if libusb is accessible, regardless of
+        # whether we have the OEM INF name saved.  The old logic showed [FAIL]
+        # when the user installed WinUSB via Zadig (no saved OEM name) or when
+        # _is_winusb_active_for_iphone() returned False due to PowerShell
+        # service name differences — confusing because streaming was fine.
+        driver_ok = self.installed or self.libusb_accessible
         lines = [
             f"  iPhone detected:   {'[OK]' if self.iphone_detected else '[FAIL]'}",
-            f"  Driver installed:  {'[OK]' if self.installed else '[FAIL]'}",
+            f"  Driver installed:  {'[OK]' if driver_ok else '[FAIL]'}",
             f"  libusb accessible: {'[OK]' if self.libusb_accessible else '[FAIL]'}",
             f"  QT config active:  {'[OK]' if self.qt_config_active else '[-]'}",
         ]

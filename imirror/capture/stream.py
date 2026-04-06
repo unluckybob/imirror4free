@@ -519,13 +519,16 @@ class ValeriaStreamCapture(CaptureBackend):
         not after the video format is received. This lets the iPhone start
         preparing the AV streams while the remaining handshake completes,
         reducing startup latency.
+
+        Note: The time.sleep(0.01) that existed between packets was removed.
+        It added 10-20 ms of unnecessary startup latency — the iPhone handles
+        back-to-back bulk OUT packets correctly with no inter-packet delay.
         """
         logger.info("Sending HPD1 + HPA1 (early, after CWPA)...")
         try:
             packets = self._session.build_hpd1_hpa1_packets()
             for pkt in packets:
                 self._endpoint.write(pkt)
-                time.sleep(0.01)
             self._hpd1_hpa1_sent = True
             logger.info("[STREAM] HPD1 + HPA1 sent — waiting for CVRP to send NEED")
         except Exception as e:
@@ -565,7 +568,6 @@ class ValeriaStreamCapture(CaptureBackend):
             packets = self._session.build_start_streaming_packets()
             for pkt in packets:
                 self._endpoint.write(pkt)
-                time.sleep(0.01)
 
             self._hpd1_hpa1_sent = True
             self._streaming_started = True
@@ -579,6 +581,13 @@ class ValeriaStreamCapture(CaptureBackend):
         """Attempt to recover from a USB error by re-claiming endpoints.
 
         Returns True if recovery succeeded and the stream can continue.
+
+        Fixed: the old code called has_qt_config() before set_configuration(5),
+        which always returned False on Windows/WinUSB — same root cause as the
+        original wait_for_reenumeration timeout (Bug 1).  The corrected approach
+        calls claim_av_endpoints() directly (which does set_configuration(5)
+        internally) and only re-enables QT config if claiming fails (e.g. the
+        iPhone was unplugged and replugged, losing Config 5).
         """
         logger.info("Attempting USB recovery...")
         try:
@@ -598,13 +607,25 @@ class ValeriaStreamCapture(CaptureBackend):
                 logger.error("USB recovery: iPhone not found")
                 return False
 
-            if not self._endpoint.has_qt_config():
-                logger.error("USB recovery: QT config lost")
-                return False
-
+            # claim_av_endpoints() calls set_configuration(5) first, so attempt
+            # it directly.  If it fails (QT config lost due to device replug),
+            # re-enable QT mode and wait for re-enumeration before retrying.
             if not self._endpoint.claim_av_endpoints():
-                logger.error("USB recovery: Failed to claim endpoints")
-                return False
+                logger.info(
+                    "USB recovery: AV endpoints not claimable "
+                    "— re-enabling QT config..."
+                )
+                if not self._endpoint.enable_qt_config():
+                    logger.error("USB recovery: Cannot re-enable QT config")
+                    return False
+                if not self._endpoint.wait_for_reenumeration(timeout=10.0):
+                    logger.error("USB recovery: Re-enumeration timed out")
+                    return False
+                if not self._endpoint.claim_av_endpoints():
+                    logger.error(
+                        "USB recovery: Failed to claim endpoints after QT re-enable"
+                    )
+                    return False
 
             logger.info("USB recovery successful — resuming stream")
             # Reset session for fresh handshake
