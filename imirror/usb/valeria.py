@@ -154,6 +154,11 @@ class ValeriaSession:
         self._video_width: int = 0
         self._video_height: int = 0
 
+        # Audio format info (populated from AFMT)
+        self._audio_sample_rate: int = 48000
+        self._audio_channels: int = 2
+        self._audio_bits_per_channel: int = 16
+
         # Frame callbacks
         self._on_video_frame: Optional[Callable[[VideoFrame], None]] = None
         self._on_audio_sample: Optional[Callable[[AudioSample], None]] = None
@@ -191,6 +196,14 @@ class ValeriaSession:
         }
 
     @property
+    def audio_format(self) -> dict:
+        return {
+            "sample_rate": self._audio_sample_rate,
+            "channels": self._audio_channels,
+            "bits_per_channel": self._audio_bits_per_channel,
+        }
+
+    @property
     def is_healthy(self) -> bool:
         """Check if we've received data recently."""
         if self.stats.last_frame_time <= 0:
@@ -200,9 +213,14 @@ class ValeriaSession:
     # ─── Clock management ───────────────────────────────────────────
 
     def _generate_clock_ref(self) -> bytes:
+        """Generate a unique 8-byte clock reference for host-created clocks.
+
+        Uses a simple incrementing counter starting from 0x1000 to avoid
+        collision with device-assigned clock refs (which are typically small).
+        """
         with self._clock_lock:
             self._clock_counter += 1
-            ref = struct.pack("<Q", 0x7F00A66CE20CB000 + self._clock_counter * 0x10)
+            ref = struct.pack("<Q", 0x1000 + self._clock_counter)
             return ref
 
     def _get_current_cmtime_ns(self) -> int:
@@ -256,8 +274,8 @@ class ValeriaSession:
         elif subtype == Magic.STOP:
             return self._handle_stop(packet, corr_id)
         else:
-            logger.debug("Unknown SYNC subtype: %s", subtype)
-            return None
+            logger.warning("Unknown SYNC subtype: %s — sending empty RPLY", subtype)
+            return build_rply(corr_id, b"\x00" * 4)
 
     def _handle_cwpa(self, packet: Packet, corr_id: bytes) -> bytes:
         if len(packet.payload) >= 16:
@@ -275,8 +293,36 @@ class ValeriaSession:
         return build_rply_with_clock(corr_id, 0, self._local_audio_clock_ref)
 
     def _handle_afmt(self, packet: Packet, corr_id: bytes) -> bytes:
+        """Handle AFMT — parse AudioStreamBasicDescription from device.
+
+        The AFMT payload contains a serialized ASBD (40+ bytes) describing
+        the audio format the iPhone will send. We parse it to confirm the
+        sample rate, channel count, and bit depth rather than assuming.
+        """
         self._afmt_received = True
-        logger.info("AFMT: Audio format received (48kHz LPCM)")
+
+        # The AFMT payload starts after the correlation ID (8 bytes)
+        afmt_data = packet.payload[8:] if len(packet.payload) > 8 else packet.payload
+        if len(afmt_data) >= 40:
+            try:
+                sample_rate = struct.unpack_from("<d", afmt_data, 0)[0]
+                format_id = struct.unpack_from("<I", afmt_data, 8)[0]
+                channels = struct.unpack_from("<I", afmt_data, 28)[0]
+                bits = struct.unpack_from("<I", afmt_data, 32)[0]
+
+                self._audio_sample_rate = int(sample_rate)
+                self._audio_channels = channels
+                self._audio_bits_per_channel = bits
+
+                format_name = afmt_data[8:12].decode('ascii', errors='replace')
+                logger.info("AFMT: %.0f Hz, %d ch, %d-bit, format='%s'",
+                           sample_rate, channels, bits, format_name)
+            except (struct.error, ValueError) as e:
+                logger.warning("AFMT: Failed to parse ASBD: %s", e)
+                logger.info("AFMT: Audio format received (assuming 48kHz LPCM)")
+        else:
+            logger.info("AFMT: Audio format received (short payload, assuming 48kHz LPCM)")
+
         return build_rply_with_dict_error(corr_id, error=0)
 
     def _handle_cvrp(self, packet: Packet, corr_id: bytes) -> bytes:
@@ -301,6 +347,15 @@ class ValeriaSession:
             self._pps = pps
             logger.info("PPS extracted: %d bytes", len(pps))
 
+        # Try to extract video dimensions from SPS if available
+        if self._sps and len(self._sps) > 4:
+            # Basic SPS parsing: profile(1), compat(1), level(1)
+            # Full SPS parsing would require exp-golomb decoding,
+            # but we can extract approximate dimensions from the CVRP dict
+            logger.debug("CVRP SPS: profile=%d, level=%d",
+                        self._sps[1] if len(self._sps) > 1 else 0,
+                        self._sps[3] if len(self._sps) > 3 else 0)
+
         self._handshake_state = HandshakeState.READY
         logger.info("Handshake complete — ready to stream")
 
@@ -319,22 +374,24 @@ class ValeriaSession:
         return build_rply(corr_id, payload)
 
     def _handle_skew(self, packet: Packet, corr_id: bytes) -> bytes:
-        # Dynamic SKEW calculation from tracked EAT! timestamps.
-        # AnyMiro computes the ratio of device clock progress vs local clock
-        # progress, scaled to the audio timescale (48000 Hz).
-        # When clocks are perfectly aligned, skew == 48000.0.
-        skew = 48000.0  # Default: no drift at audio timescale
+        """Handle SKEW — report clock drift ratio between device and host.
+
+        AnyMiro computes the ratio of device clock progress vs local clock
+        progress. When clocks are perfectly aligned, skew == 1.0. This value
+        is used by the iPhone to adjust its output timing.
+        """
+        skew = 1.0  # Default: no drift
         if self._eat_count >= 10 and self._last_eat_local_ns > self._first_eat_local_ns:
             device_elapsed = self._last_eat_device_pts_ns - self._first_eat_device_pts_ns
             local_elapsed = self._last_eat_local_ns - self._first_eat_local_ns
             if local_elapsed > 0 and device_elapsed > 0:
-                skew = 48000.0 * (device_elapsed / local_elapsed)
-                logger.debug("SKEW: Dynamic = %.2f (device=%dns, local=%dns)",
+                skew = device_elapsed / local_elapsed
+                logger.debug("SKEW: Dynamic = %.6f (device=%dns, local=%dns)",
                              skew, device_elapsed, local_elapsed)
             else:
-                logger.debug("SKEW: Default 48000.0 (insufficient elapsed time)")
+                logger.debug("SKEW: Default 1.0 (insufficient elapsed time)")
         else:
-            logger.debug("SKEW: Default 48000.0 (%d EAT! samples so far)", self._eat_count)
+            logger.debug("SKEW: Default 1.0 (%d EAT! samples so far)", self._eat_count)
         payload = struct.pack("<Id", 0, skew)
         return build_rply(corr_id, payload)
 
@@ -352,16 +409,25 @@ class ValeriaSession:
             self._handle_feed(packet)
         elif subtype == Magic.EAT:
             self._handle_eat(packet)
+        elif subtype == Magic.NEED:
+            # Device requesting more data — this is a backpressure signal.
+            # We note it but don't need to act since we're the receiver.
+            logger.debug("NEED: Device requested more data (backpressure)")
         elif subtype == Magic.SPRP:
-            logger.debug("SPRP: Set property received")
+            logger.debug("SPRP: Set property received (%d bytes payload)",
+                        len(packet.payload))
         elif subtype == Magic.SRAT:
-            logger.debug("SRAT: Set rate/anchor received")
+            logger.debug("SRAT: Set rate/anchor received (%d bytes payload)",
+                        len(packet.payload))
         elif subtype == Magic.TBAS:
             logger.debug("TBAS: Set timebase received")
         elif subtype == Magic.TJMP:
             logger.debug("TJMP: Time jump received")
         elif subtype == Magic.RELS:
             logger.debug("RELS: Clock released")
+        else:
+            logger.debug("Unknown ASYN subtype: %s (%d bytes)",
+                        subtype, len(packet.payload))
 
     def _handle_feed(self, packet: Packet) -> None:
         parsed = parse_cmsamplebuffer(packet.payload)
@@ -527,5 +593,8 @@ class ValeriaSession:
         self._first_eat_local_ns = 0
         self._last_eat_local_ns = 0
         self._eat_count = 0
+        self._audio_sample_rate = 48000
+        self._audio_channels = 2
+        self._audio_bits_per_channel = 16
         self.stats = SessionStats()
         logger.info("Session reset")

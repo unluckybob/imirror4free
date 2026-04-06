@@ -44,7 +44,7 @@ from imirror.capture.base import CaptureBackend, CapturedFrame
 from imirror.config import config
 from imirror.usb.packets import (
     Magic, PacketType, Packet, VideoFrame, AudioSample,
-    read_packet, build_ping,
+    read_packet,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,7 @@ class ValeriaStreamCapture(CaptureBackend):
         self._hpd1_hpa1_sent = False
         self._init_error: Optional[str] = None
         self._error_type: str = StreamError.GENERIC
+        self._pending_need: bool = False
 
     @property
     def name(self) -> str:
@@ -362,20 +363,12 @@ class ValeriaStreamCapture(CaptureBackend):
 
         logger.info("Valeria protocol loop starting...")
 
-        # ── Send initial PING to start the Valeria handshake ──────────
-        # The host must send a PING first to trigger the iPhone's protocol
-        # state machine. Without this, the iPhone never sends SYNC messages.
-        # Reference: quicktime_video_hack sends PING before entering read loop.
-        # AnyMiro does the same (in util.py, which failed to decompile, but
-        # the protocol flow requires host-initiated PING).
-        try:
-            ping_pkt = build_ping()
-            self._endpoint.write(ping_pkt)
-            logger.info("Sent initial PING to iPhone — waiting for handshake...")
-        except Exception as e:
-            logger.error("Failed to send initial PING: %s", e)
-            self._signal_error(f"Failed to send PING: {e}")
-            return
+        # ── Wait for iPhone-initiated PING ────────────────────────────
+        # AnyMiro session analysis confirms the iPhone sends PING first.
+        # The host must wait for the iPhone's PING and respond with its
+        # own PING packet. Sending PING first can confuse the iPhone's
+        # protocol state machine.
+        logger.info("Waiting for iPhone PING to start handshake...")
 
         while self._running:
             # ── Read from USB ───────────────────────────────────────
@@ -400,8 +393,13 @@ class ValeriaStreamCapture(CaptureBackend):
                 # there may still be complete packets waiting in read_buffer.
             except usb.core.USBError as e:
                 if self._running:
-                    logger.error("USB read error: %s", e)
-                    self._signal_error(f"USB error: {e}")
+                    logger.error("USB read error: %s — attempting recovery", e)
+                    # Try to recover from transient USB errors
+                    if self._attempt_usb_recovery():
+                        read_buffer.clear()
+                        last_data_time = time.monotonic()
+                        continue
+                    self._signal_error(f"USB error: {e}", StreamError.CONNECTION_LOST)
                 return
 
             # ── Parse complete packets ──────────────────────────────
@@ -410,11 +408,12 @@ class ValeriaStreamCapture(CaptureBackend):
 
                 if pkt_len < 4 or pkt_len > 16 * 1024 * 1024:
                     logger.warning(
-                        "Invalid packet length %d — flushing buffer (%d bytes)",
+                        "Invalid packet length %d at buffer offset — skipping 4 bytes (%d in buffer)",
                         pkt_len, len(read_buffer)
                     )
-                    read_buffer.clear()
-                    break
+                    # Skip 4 bytes and try to resync instead of flushing everything
+                    del read_buffer[:4]
+                    continue
 
                 if len(read_buffer) < pkt_len:
                     break
@@ -435,7 +434,9 @@ class ValeriaStreamCapture(CaptureBackend):
                     except usb.core.USBError as e:
                         logger.error("Failed to send response: %s", e)
 
-                # After receiving a FEED packet, immediately send NEED
+                # After receiving a FEED packet, send NEED to request next frame.
+                # This creates a pull-based flow: one NEED per FEED received,
+                # preventing the host from flooding the iPhone.
                 if (self._streaming_started
                         and packet.packet_type == PacketType.ASYN
                         and packet.subtype == Magic.FEED):
@@ -443,8 +444,9 @@ class ValeriaStreamCapture(CaptureBackend):
                         need_pkt = self._session.build_need_packet()
                         self._endpoint.write(need_pkt)
                         last_need_time = time.monotonic()
+                        self._pending_need = False
                     except usb.core.USBError:
-                        pass
+                        self._pending_need = True  # Retry on next loop
 
                 # ── Track handshake progress ────────────────────────
                 if packet.packet_type == PacketType.PING:
@@ -485,10 +487,12 @@ class ValeriaStreamCapture(CaptureBackend):
                                 # Fallback if CWPA was missed
                                 self._start_streaming()
 
-            # ── Send NEED packets to keep video flowing ─────────────
+            # ── Periodic NEED keepalive ─────────────────────────────
+            # Primary NEED is sent per-FEED above. This timer is a
+            # keepalive: if no FEED arrived for a while, re-request.
             if self._streaming_started:
                 now = time.monotonic()
-                if now - last_need_time >= need_interval:
+                if now - last_need_time >= need_interval * 4:  # 64ms keepalive
                     try:
                         need_pkt = self._session.build_need_packet()
                         self._endpoint.write(need_pkt)
@@ -558,6 +562,50 @@ class ValeriaStreamCapture(CaptureBackend):
         except Exception as e:
             logger.error("Failed to start streaming: %s", e)
             self._signal_error(f"Failed to start streaming: {e}")
+
+    def _attempt_usb_recovery(self) -> bool:
+        """Attempt to recover from a USB error by re-claiming endpoints.
+
+        Returns True if recovery succeeded and the stream can continue.
+        """
+        logger.info("Attempting USB recovery...")
+        try:
+            # Release and re-claim endpoints
+            if self._endpoint:
+                try:
+                    self._endpoint.close()
+                except Exception:
+                    pass
+
+            time.sleep(1.0)  # Brief pause for USB bus to settle
+
+            from imirror.usb.endpoint import USBEndpoint
+            self._endpoint = USBEndpoint()
+
+            if not self._endpoint.find_iphone():
+                logger.error("USB recovery: iPhone not found")
+                return False
+
+            if not self._endpoint.has_qt_config():
+                logger.error("USB recovery: QT config lost")
+                return False
+
+            if not self._endpoint.claim_av_endpoints():
+                logger.error("USB recovery: Failed to claim endpoints")
+                return False
+
+            logger.info("USB recovery successful — resuming stream")
+            # Reset session for fresh handshake
+            if self._session:
+                self._session.reset()
+            self._streaming_started = False
+            self._hpd1_hpa1_sent = False
+            self._handshake_done.clear()
+            return True
+
+        except Exception as e:
+            logger.error("USB recovery failed: %s", e)
+            return False
 
     # ─── Frame/audio callbacks ──────────────────────────────────────
 

@@ -134,6 +134,9 @@ class ParsedCMSampleBuffer:
     has_format_description: bool = False
     format_description_bytes: Optional[bytes] = None
     num_samples: int = 0
+    sample_rate: int = 0
+    channels: int = 0
+    bits_per_channel: int = 0
 
 
 # ─── Packet reading ─────────────────────────────────────────────────
@@ -593,7 +596,10 @@ def parse_cmsamplebuffer(payload: bytes) -> Optional[ParsedCMSampleBuffer]:
             if data_len >= 4:
                 result.num_samples = struct.unpack_from("<I", payload, data_start)[0]
 
-        # Other sections (stia, ssiz, satt, sary) are skipped — not needed for extraction
+        # Log unknown sections for protocol debugging
+        else:
+            section_name = section_magic.decode('ascii', errors='replace')
+            logger.debug("CMSampleBuffer: skipping section '%s' (%d bytes)", section_name, data_len)
 
         pos += section_len
 
@@ -642,29 +648,12 @@ def avcc_to_annex_b(avcc_data: bytes) -> Optional[bytes]:
 # Annex B start code used by standard H.264 decoders
 _ANNEX_B_START_CODE = b"\x00\x00\x00\x01"
 
-# Valid H.264 NAL unit types (used for heuristic detection)
-_VALID_NAL_TYPES = frozenset({
-    1,   # Non-IDR slice
-    2,   # Slice data partition A
-    3,   # Slice data partition B
-    4,   # Slice data partition C
-    5,   # IDR slice (keyframe)
-    6,   # SEI (supplemental enhancement information)
-    7,   # SPS (sequence parameter set)
-    8,   # PPS (picture parameter set)
-    9,   # Access unit delimiter
-    10,  # End of sequence
-    11,  # End of stream
-    12,  # Filler data
-})
-
 
 def extract_h264_from_feed(payload: bytes) -> Optional[bytes]:
     """Extract H.264 NAL units from a FEED packet's CMSampleBuffer.
 
     Uses structured CMSampleBuffer parsing to locate the ``sdat`` section,
-    then performs a clean AVCC → Annex B conversion. Falls back to the
-    heuristic byte-scanning method if structured parsing fails.
+    then performs a clean AVCC → Annex B conversion.
 
     Args:
         payload: Raw FEED packet payload bytes.
@@ -677,184 +666,30 @@ def extract_h264_from_feed(payload: bytes) -> Optional[bytes]:
         annex_b = avcc_to_annex_b(parsed.sample_data)
         if annex_b:
             return annex_b
-    # Fallback to old heuristic for robustness
-    return _extract_h264_from_feed_heuristic(payload)
-
-
-def _extract_h264_from_feed_heuristic(payload: bytes) -> Optional[bytes]:
-    """Extract H.264 NAL units using heuristic byte-scanning (legacy fallback).
-
-    This is the original extraction method, kept as a fallback for payloads
-    that don't conform to the standard CMSampleBuffer TLV structure.
-
-    Strategy:
-    1. Try to find AVCC-formatted NALUs by scanning for valid length+NAL patterns
-    2. Fall back to returning raw data after 'sbuf' magic marker
-
-    Args:
-        payload: Raw FEED packet payload bytes.
-
-    Returns:
-        H.264 data in Annex B format, or None if extraction failed.
-    """
-    if len(payload) < 8:
-        return None
-
-    # Strategy 1: Find AVCC-formatted NAL units
-    # Scan for a valid 4-byte-length + NAL header pattern
-    annex_b = _try_avcc_to_annex_b(payload)
-    if annex_b:
-        return annex_b
-
-    # Strategy 2: Look for Annex B start codes already in the data
-    if _ANNEX_B_START_CODE in payload:
-        # Data might already be in Annex B format — find the first start code
-        idx = payload.find(_ANNEX_B_START_CODE)
-        if idx >= 0:
-            candidate = payload[idx:]
-            if len(candidate) > 8:
-                return bytes(candidate)
-
-    # Strategy 3: Fall back to raw data after sbuf magic
-    sbuf_idx = payload.find(Magic.SBUF)
-    if sbuf_idx >= 0:
-        # Skip the sbuf header (magic + length info)
-        raw = payload[sbuf_idx + 4:]
-        if raw:
-            return bytes(raw)
-
+        logger.warning("AVCC→Annex B conversion failed for %d bytes of sdat", len(parsed.sample_data))
+    else:
+        logger.debug("No CMSampleBuffer/sdat found in FEED payload (%d bytes)", len(payload))
     return None
 
-
-def _try_avcc_to_annex_b(payload: bytes) -> Optional[bytes]:
-    """Try to find and convert AVCC-formatted H.264 NALUs to Annex B.
-
-    AVCC format: [4-byte big-endian length][NAL unit data][4-byte length][NAL...]
-    Annex B format: [0x00000001][NAL unit data][0x00000001][NAL...]
-
-    Scans the payload for the first valid AVCC NAL unit sequence,
-    then converts all consecutive NALUs to Annex B.
-    """
-    # Scan for the start of AVCC data
-    # We look for a 4-byte length followed by a valid NAL header
-    for start_offset in range(len(payload) - 5):
-        # Read potential 4-byte NALU length (big-endian)
-        nalu_len = struct.unpack_from(">I", payload, start_offset)[0]
-
-        # Length must be reasonable (1 byte to 5MB)
-        if nalu_len < 1 or nalu_len > 5 * 1024 * 1024:
-            continue
-
-        # Must fit within remaining payload
-        if start_offset + 4 + nalu_len > len(payload):
-            continue
-
-        # Check NAL header byte
-        nal_header = payload[start_offset + 4]
-        forbidden_bit = (nal_header >> 7) & 1
-        nal_type = nal_header & 0x1F
-
-        # forbidden_zero_bit must be 0, NAL type must be valid
-        if forbidden_bit != 0:
-            continue
-        if nal_type not in _VALID_NAL_TYPES:
-            continue
-
-        # Found a valid starting point — convert all NALUs from here
-        return _convert_avcc_stream(payload, start_offset)
-
-    return None
-
-
-def _convert_avcc_stream(payload: bytes, offset: int) -> Optional[bytes]:
-    """Convert a sequence of AVCC NAL units starting at offset to Annex B."""
-    result = bytearray()
-    pos = offset
-
-    while pos < len(payload) - 4:
-        # Read 4-byte big-endian NALU length
-        nalu_len = struct.unpack_from(">I", payload, pos)[0]
-        pos += 4
-
-        # Validate length
-        if nalu_len < 1 or pos + nalu_len > len(payload):
-            break
-
-        # Validate NAL header
-        nal_header = payload[pos]
-        forbidden_bit = (nal_header >> 7) & 1
-        nal_type = nal_header & 0x1F
-
-        if forbidden_bit != 0 or nal_type not in _VALID_NAL_TYPES:
-            break  # End of valid NALU sequence
-
-        # Append Annex B start code + NALU data
-        result.extend(_ANNEX_B_START_CODE)
-        result.extend(payload[pos:pos + nalu_len])
-        pos += nalu_len
-
-    return bytes(result) if result else None
 
 
 def extract_sps_pps_from_cvrp(payload: bytes) -> tuple[Optional[bytes], Optional[bytes]]:
     """Extract SPS and PPS NAL units from a CVRP packet's format description.
 
     The CVRP packet contains a CMFormatDescription which includes the
-    H.264 decoder configuration record (avcC atom). This function tries
-    two strategies:
-    1. Parse the AVCC configuration record properly
-    2. Fall back to scanning for NAL type 7 (SPS) and 8 (PPS) in AVCC format
+    H.264 decoder configuration record (avcC atom).
 
     Returns:
         Tuple of (sps_bytes, pps_bytes), either may be None if not found.
     """
-    sps = None
-    pps = None
-
     # Look for FDSC (format description) marker
     fdsc_idx = payload.find(Magic.FDSC)
     if fdsc_idx < 0:
-        # Try full payload if no FDSC marker
         search_region = payload
     else:
         search_region = payload[fdsc_idx:]
 
-    # Strategy 1: Try to find avcC configuration record
-    # The avcC record starts with version=1, profile, compat, level
-    # then has SPS count, SPS entries, PPS count, PPS entries
-    sps_found, pps_found = _try_parse_avcc_record(search_region)
-    if sps_found:
-        sps = sps_found
-    if pps_found:
-        pps = pps_found
-
-    if sps and pps:
-        return (sps, pps)
-
-    # Strategy 2: Scan for NAL units with valid SPS/PPS types
-    pos = 0
-    while pos < len(search_region) - 5:
-        # Check for AVCC length-prefixed NALUs
-        try:
-            nalu_len = struct.unpack_from(">I", search_region, pos)[0]
-            if 2 <= nalu_len <= 256 and pos + 4 + nalu_len <= len(search_region):
-                nal_header = search_region[pos + 4]
-                nal_type = nal_header & 0x1F
-
-                if nal_type == 7 and sps is None:
-                    sps = bytes(search_region[pos + 4: pos + 4 + nalu_len])
-                elif nal_type == 8 and pps is None:
-                    pps = bytes(search_region[pos + 4: pos + 4 + nalu_len])
-
-                if sps and pps:
-                    break
-
-                pos += 4 + nalu_len
-                continue
-        except struct.error:
-            pass
-
-        pos += 1
+    sps, pps = _try_parse_avcc_record(search_region)
 
     if sps:
         logger.info("Found SPS (%d bytes)", len(sps))
@@ -970,8 +805,7 @@ def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
     """Extract raw PCM audio data from an EAT! packet's CMSampleBuffer.
 
     Uses structured CMSampleBuffer parsing to locate the ``sdat`` section
-    containing raw PCM samples. Falls back to the heuristic method if
-    structured parsing fails.
+    containing raw PCM samples.
 
     Args:
         payload: Raw EAT! packet payload bytes.
@@ -985,56 +819,10 @@ def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
         aligned = (len(parsed.sample_data) // frame_size) * frame_size
         if aligned > 0:
             return parsed.sample_data[:aligned]
-    # Fallback to old heuristic
-    return _extract_pcm_from_eat_heuristic(payload)
-
-
-def _extract_pcm_from_eat_heuristic(payload: bytes) -> Optional[bytes]:
-    """Extract raw PCM audio using heuristic byte-scanning (legacy fallback).
-
-    This is the original extraction method, kept as a fallback for payloads
-    that don't conform to the standard CMSampleBuffer TLV structure.
-
-    Args:
-        payload: Raw EAT! packet payload bytes.
-
-    Returns:
-        Raw PCM audio bytes (int16 stereo), or None if extraction failed.
-    """
-    if len(payload) < 16:
-        return None
-
-    # Strategy 1: Look for sbuf marker
-    sbuf_idx = payload.find(Magic.SBUF)
-    if sbuf_idx >= 0 and sbuf_idx + 8 < len(payload):
-        # Read the sbuf length
-        if sbuf_idx >= 4:
-            sbuf_len = struct.unpack_from("<I", payload, sbuf_idx - 4)[0]
-            data_start = sbuf_idx + 4  # After "sbuf" magic
-            data_end = sbuf_idx - 4 + sbuf_len
-            if data_end <= len(payload) and data_end > data_start:
-                pcm = payload[data_start:data_end]
-                # Ensure alignment to stereo int16 frame size (4 bytes)
-                frame_size = 4  # 2 channels * 2 bytes per sample (int16)
-                aligned_len = (len(pcm) // frame_size) * frame_size
-                if aligned_len > 0:
-                    return bytes(pcm[:aligned_len])
-
-        # Fallback: take everything after sbuf magic
-        raw = payload[sbuf_idx + 4:]
-        frame_size = 4
-        aligned_len = (len(raw) // frame_size) * frame_size
-        if aligned_len > 0:
-            return bytes(raw[:aligned_len])
-
-    # Strategy 2: Skip known headers and extract remaining data
-    min_pcm_offset = 32
-    frame_size = 4  # stereo int16
-
-    if len(payload) > min_pcm_offset + frame_size:
-        raw = payload[min_pcm_offset:]
-        aligned_len = (len(raw) // frame_size) * frame_size
-        if aligned_len >= frame_size * 64:
-            return bytes(raw[:aligned_len])
-
+        logger.warning("PCM data too small for alignment: %d bytes", len(parsed.sample_data))
+    else:
+        logger.debug("No CMSampleBuffer/sdat found in EAT! payload (%d bytes)", len(payload))
     return None
+
+
+
