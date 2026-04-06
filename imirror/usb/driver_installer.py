@@ -4,7 +4,7 @@ WinUSB Driver Auto-Installer for iPhone AV Interface.
 Automates what Zadig does manually — installs the WinUSB driver for the
 iPhone so libusb can access it for Valeria protocol communication.
 
-This is the "mirror driver" equivalent of what AnyMiro installs on first run.
+This installs a WinUSB "mirror driver" on first run.
 After installation, IMIRROR4FREE can send the USB control transfer to enable
 QT Configuration 5 (Valeria AV streaming) and communicate with the
 H.264 video + PCM audio endpoints.

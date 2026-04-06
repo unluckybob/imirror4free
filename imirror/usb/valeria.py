@@ -141,7 +141,7 @@ class ValeriaSession:
         self._start_time_ns = 0
 
         # EAT! timestamp tracking for dynamic SKEW calculation
-        # AnyMiro computes clock skew from actual device vs local timestamps
+        # Clock skew is computed from actual device vs local timestamps
         self._first_eat_device_pts_ns: int = 0
         self._last_eat_device_pts_ns: int = 0
         self._first_eat_local_ns: int = 0
@@ -376,9 +376,9 @@ class ValeriaSession:
     def _handle_skew(self, packet: Packet, corr_id: bytes) -> bytes:
         """Handle SKEW — report clock drift ratio between device and host.
 
-        AnyMiro computes the ratio of device clock progress vs local clock
-        progress. When clocks are perfectly aligned, skew == 1.0. This value
-        is used by the iPhone to adjust its output timing.
+        The correct approach is to compute the ratio of device clock progress
+        vs local clock progress. When clocks are perfectly aligned, skew == 1.0.
+        This value is used by the iPhone to adjust its output timing.
         """
         skew = 1.0  # Default: no drift
         if self._eat_count >= 10 and self._last_eat_local_ns > self._first_eat_local_ns:
@@ -436,10 +436,10 @@ class ValeriaSession:
             return
 
         # Update SPS/PPS from FormatDescription if present (keyframes).
-        # AnyMiro checks HasFormatDescription on every CMSampleBuffer and
-        # extracts fresh SPS/PPS from the fdsc section.  This is critical
-        # because the iPhone can change resolution mid-stream (e.g. during
-        # orientation change) and the new parameters appear here.
+        # We check HasFormatDescription on every CMSampleBuffer and extract
+        # fresh SPS/PPS from the fdsc section.  This is critical because the
+        # iPhone can change resolution mid-stream (e.g. during orientation
+        # change) and the new parameters appear here.
         is_keyframe = False
         if parsed.has_format_description and parsed.format_description_bytes:
             sps, pps = extract_sps_pps_from_fdsc(parsed.format_description_bytes)
@@ -465,8 +465,8 @@ class ValeriaSession:
 
             # Prepend SPS/PPS to keyframes for decoder robustness.
             # Standard H.264 order: SPS → PPS → IDR (FFmpeg expects this).
-            # AnyMiro uses PPS → SPS for its GStreamer pipeline, but both
-            # orders work — the key is that both NALUs appear before the IDR.
+            # Both SPS→PPS and PPS→SPS orders work — the key is that both
+            # NALUs appear before the IDR.
             if is_keyframe and self._sps and self._pps:
                 sps_pps = (
                     b"\x00\x00\x00\x01" + self._sps
@@ -480,7 +480,7 @@ class ValeriaSession:
 
             # Use device PTS from CMSampleBuffer when available — more accurate
             # than local monotonic clock because it eliminates USB transfer jitter.
-            # AnyMiro uses OutputPresentationTimestamp from the CMSampleBuffer.
+            # The OutputPresentationTimestamp from the CMSampleBuffer is preferred.
             if parsed and parsed.pts_timescale > 0:
                 timestamp_ns = int(parsed.pts_value * 1_000_000_000 / parsed.pts_timescale)
             else:
@@ -536,7 +536,7 @@ class ValeriaSession:
     def build_hpd1_hpa1_packets(self) -> list[bytes]:
         """Build HPD1 + HPA1 packets to start video and audio streaming.
 
-        AnyMiro sends these immediately after CWPA (audio clock negotiation),
+        These are sent immediately after CWPA (audio clock negotiation),
         not after CVRP. This reduces startup latency by letting the iPhone
         prepare the streams while the rest of the handshake completes.
 

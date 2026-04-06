@@ -8,7 +8,7 @@ Full native resolution • Low latency • GPU-accelerated • No watermarks •
 
 ## 🎯 What is this?
 
-IMIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free. It uses Apple's Valeria protocol (the same technology behind QuickTime and AnyMiro) to stream your iPhone's H.264 video directly over USB at up to 60 FPS.
+IMIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free. It uses Apple's Valeria protocol (the same technology behind QuickTime) to stream your iPhone's H.264 video directly over USB at up to 60 FPS.
 
 **No companion app on iPhone.** No WiFi. No cloud. Just plug in your USB cable and go.
 
@@ -184,11 +184,11 @@ IMIRROR4FREE uses Apple's proprietary Valeria protocol — the same protocol Qui
 3. **SYNC Negotiations**: Handle CWPA (audio clock), AFMT (audio format), CVRP (video format + SPS/PPS), CLOK, TIME, SKEW
 4. **Start Streaming**: Send HPD1 (start video) and HPA1 (start audio)
 5. **Continuous Stream**: Receive FEED (H.264 in CMSampleBuffer) and EAT! (LPCM audio) packets
-6. **NEED Flow**: Send NEED packets after each FEED to request more frames (like AnyMiro)
+6. **NEED Flow**: Send NEED packets after each FEED to request more frames
 
 ### The Driver Problem (and Solution)
 
-On Windows, Apple's USB driver claims the iPhone's Valeria interface exclusively. We solve this the same way AnyMiro does — install a WinUSB driver specifically for the Valeria interface (Interface 2, SubClass 0x2A), while letting Apple's driver keep the other interfaces for normal iPhone functionality.
+On Windows, Apple's USB driver claims the iPhone's Valeria interface exclusively. The solution is to install a WinUSB driver specifically for the Valeria interface (Interface 2, SubClass 0x2A), while letting Apple's driver keep the other interfaces for normal iPhone functionality.
 
 Our `driver_installer.py` handles this automatically:
 - Detects the iPhone via WMI

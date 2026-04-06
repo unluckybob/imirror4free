@@ -124,7 +124,7 @@ class AudioPlayer:
             self._buffer.extend(pcm_data)
 
             # Limit buffer size to prevent unbounded growth.
-            # AnyMiro uses BufferAheadInterval=73ms and ScreenLatency=40ms.
+            # Optimal values: BufferAheadInterval=73ms, ScreenLatency=40ms.
             # 2× gives enough headroom without adding perceptible latency.
             max_bytes = int(
                 self._sample_rate * self._channels * 4  # float32 = 4 bytes

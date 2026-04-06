@@ -314,10 +314,10 @@ class USBEndpoint:
             logger.error("Failed to claim interface %d: %s", intf_num, e)
             return False
 
-        # Select alternate setting — AnyMiro's USB trace shows 4 ×
+        # Select alternate setting — USB trace analysis shows 4 ×
         # SELECT_INTERFACE calls.  Explicitly selecting alt setting 0
         # ensures the Valeria bulk endpoints are activated and matches
-        # the observed AnyMiro behaviour.
+        # the observed protocol behaviour.
         try:
             alt_setting = self._interface.bAlternateSetting
             self._dev.set_interface_altsetting(
