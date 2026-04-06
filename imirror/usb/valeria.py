@@ -240,11 +240,15 @@ class ValeriaSession:
         return None
 
     def _handle_ping(self, packet: Packet) -> bytes:
-        logger.info("PING received — sending PING response")
+        logger.info("PING received — echoing identical PING packet back")
         self._start_time_ns = time.monotonic_ns()
         self.stats.session_start_time = time.monotonic()
         self._handshake_state = HandshakeState.PING_DONE
-        return build_ping()
+        # Workflow doc: "Host replies with identical packet."
+        # Echo the exact 16 bytes iPhone sent — do NOT reconstruct with build_ping()
+        # since iPhone may vary the payload and expects its own bytes reflected back.
+        raw = packet.raw if hasattr(packet, "raw") and packet.raw else build_ping()
+        return raw
 
     def _handle_sync(self, packet: Packet) -> Optional[bytes]:
         subtype = packet.subtype
