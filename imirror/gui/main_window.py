@@ -444,9 +444,6 @@ class MainWindow(QMainWindow):
                 self._device_manager = DeviceManager()
                 self._device_manager.start()
 
-            # Check driver status from startup diagnostics and update UI
-            self._update_driver_ui_from_diagnostics()
-
             device = self._device_manager.first_device
             if device:
                 self._waiting_status.setText(f"iPhone detected: {device.display_name}")
@@ -777,10 +774,19 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", str(e))
 
     def _update_driver_ui_from_diagnostics(self) -> None:
-        """Read startup diagnostics and show driver install button if needed."""
+        """Show driver install button — only when a phone is connected AND driver is missing.
+
+        The startup diagnostics run before the phone is connected so their
+        libusb_accessible result is stale.  Guard: only show the button if a
+        device is currently present; otherwise the Valeria stream error path
+        (_prompt_driver_install_auto) will show it at the right moment.
+        """
         if self._driver_installed_this_session:
-            return  # Driver was installed this session — don't re-show button from stale cache
+            return  # Driver was installed this session — don't re-show from stale cache
         if not self._device_manager:
+            return
+        # Don't show the button until the phone is actually connected
+        if not self._device_manager.first_device:
             return
         diag = self._device_manager.diagnostics
         if not diag:
@@ -788,14 +794,9 @@ class MainWindow(QMainWindow):
         driver_status = diag.get("driver_status")
         if driver_status and not driver_status.libusb_accessible:
             self._btn_install_driver.setVisible(True)
-            if driver_status.iphone_detected:
-                self._driver_status_label.setText(
-                    "Mirror driver required for USB streaming"
-                )
-            else:
-                self._driver_status_label.setText(
-                    "Mirror driver required — you'll be prompted to install it when your iPhone connects"
-                )
+            self._driver_status_label.setText(
+                "Mirror driver required for USB streaming"
+            )
 
     def _on_driver_status_checked(self, status) -> None:
         """Called on main thread when a background driver status check completes."""
