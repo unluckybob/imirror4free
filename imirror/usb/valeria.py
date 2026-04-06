@@ -394,21 +394,21 @@ class ValeriaSession:
         """Handle SKEW — report clock drift ratio between device and host.
 
         The correct approach is to compute the ratio of device clock progress
-        vs local clock progress. When clocks are perfectly aligned, skew == 1.0.
+        vs local clock progress. When clocks are perfectly aligned, skew == 48000.0 (the audio sample rate).
         This value is used by the iPhone to adjust its output timing.
         """
-        skew = 1.0  # Default: no drift
+        skew = 48000.0  # Default: clocks aligned at 48kHz sample rate
         if self._eat_count >= 10 and self._last_eat_local_ns > self._first_eat_local_ns:
             device_elapsed = self._last_eat_device_pts_ns - self._first_eat_device_pts_ns
             local_elapsed = self._last_eat_local_ns - self._first_eat_local_ns
             if local_elapsed > 0 and device_elapsed > 0:
-                skew = device_elapsed / local_elapsed
+                skew = 48000.0 * (local_elapsed / device_elapsed)
                 logger.debug("SKEW: Dynamic = %.6f (device=%dns, local=%dns)",
                              skew, device_elapsed, local_elapsed)
             else:
-                logger.debug("SKEW: Default 1.0 (insufficient elapsed time)")
+                logger.debug("SKEW: Default 48000.0 (insufficient elapsed time)")
         else:
-            logger.debug("SKEW: Default 1.0 (%d EAT! samples so far)", self._eat_count)
+            logger.debug("SKEW: Default 48000.0 (%d EAT! samples so far)", self._eat_count)
         payload = struct.pack("<Id", 0, skew)
         return build_rply(corr_id, payload)
 
