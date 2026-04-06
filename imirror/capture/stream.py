@@ -461,7 +461,15 @@ class ValeriaStreamCapture(CaptureBackend):
         while self._running:
             # ── Read from USB ───────────────────────────────────────
             try:
-                data = self._endpoint.read(size=read_size, timeout=read_timeout)
+                # During handshake (before streaming starts) use a small read
+                # buffer so the iPhone's short PING packet (16 bytes) immediately
+                # terminates the WinUSB bulk transfer.  Large URBs (1 MB) may
+                # silently discard short-packet completions on some WinUSB builds,
+                # which causes PING to be lost and the handshake to never start.
+                # Once streaming is confirmed we switch to the full buffer size
+                # for high-throughput video reads.
+                _hs_read_size = 4096 if not self._streaming_started else read_size
+                data = self._endpoint.read(size=_hs_read_size, timeout=read_timeout)
                 if data:
                     read_buffer.extend(data)
                     last_data_time = time.monotonic()
