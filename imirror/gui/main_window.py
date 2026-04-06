@@ -607,7 +607,8 @@ class MainWindow(QMainWindow):
                                 'get_decoder_extradata', lambda: None)()
             if w and h:
                 self._recorder.set_video_format(w, h, extradata)
-            self._recording_fmt_set = True
+                self._recording_fmt_set = True  # Only mark done when format was actually set
+            # else: retry on next keyframe (dimensions may not be available yet)
         self._recorder.feed_video(h264_data, is_keyframe, timestamp_ns)
 
     def _feed_audio_to_recorder(self, pcm_data: bytes) -> None:
