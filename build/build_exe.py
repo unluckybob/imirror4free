@@ -213,7 +213,8 @@ def build():
     mode_str = "DEBUG (console)" if DEBUG_MODE else "RELEASE (windowed)"
 
     print("=" * 60)
-    print(f"Building IMIRROR4FREE v0.7.0  [{mode_str}]")
+    from imirror import __version__
+    print(f"Building IMIRROR4FREE v{__version__}  [{mode_str}]")
     print("=" * 60)
     print(f"  Entry point : run.py")
     print(f"  Mode        : --onedir")
