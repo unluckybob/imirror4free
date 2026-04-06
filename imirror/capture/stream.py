@@ -365,7 +365,7 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.info("Valeria protocol loop starting...")
 
         # ── Wait for iPhone-initiated PING ────────────────────────────
-        # AnyMiro session analysis confirms the iPhone sends PING first.
+        # Protocol analysis confirms the iPhone sends PING first.
         # The host must wait for the iPhone's PING and respond with its
         # own PING packet. Sending PING first can confuse the iPhone's
         # protocol state machine.
@@ -457,9 +457,9 @@ class ValeriaStreamCapture(CaptureBackend):
                 elif packet.packet_type == PacketType.SYNC:
                     if packet.subtype == Magic.CWPA:
                         logger.info("CWPA received — audio clock negotiated")
-                        # AnyMiro sends HPD1 + HPA1 immediately after CWPA
-                        # to reduce startup latency — the iPhone begins
-                        # preparing streams while CVRP/CLOK/TIME/SKEW complete.
+                        # Send HPD1 + HPA1 immediately after CWPA to reduce
+                        # startup latency — the iPhone begins preparing
+                        # streams while CVRP/CLOK/TIME/SKEW complete.
                         if not self._hpd1_hpa1_sent:
                             self._send_hpd1_hpa1()
 
@@ -481,7 +481,7 @@ class ValeriaStreamCapture(CaptureBackend):
                             else:
                                 logger.warning("Decoder initialized WITHOUT SPS/PPS — may fail until keyframe")
 
-                        # AnyMiro workflow: NEED is sent after CLOK, not after CVRP.
+                        # Protocol flow: NEED is sent after CLOK, not after CVRP.
                         # The iPhone sends CLOK right after CVRP, and only then
                         # expects the NEED request. Defer to CLOK handler below.
                         if not self._hpd1_hpa1_sent:
@@ -490,9 +490,9 @@ class ValeriaStreamCapture(CaptureBackend):
 
                     elif packet.subtype == Magic.CLOK:
                         logger.info("CLOK received — clock created")
-                        # AnyMiro sends NEED after the first CLOK that follows
-                        # CVRP (workflow step 20). This is when the iPhone is
-                        # fully ready to deliver video frames.
+                        # NEED is sent after the first CLOK that follows CVRP
+                        # (protocol step 20). This is when the iPhone is fully
+                        # ready to deliver video frames.
                         if self._cvrp_received and not self._streaming_started:
                             if self._hpd1_hpa1_sent:
                                 self._start_streaming_need_only()
@@ -515,7 +515,7 @@ class ValeriaStreamCapture(CaptureBackend):
     def _send_hpd1_hpa1(self) -> None:
         """Send HPD1 + HPA1 commands early (after CWPA, before CVRP).
 
-        AnyMiro sends these immediately after the audio clock is negotiated,
+        These are sent immediately after the audio clock is negotiated,
         not after the video format is received. This lets the iPhone start
         preparing the AV streams while the remaining handshake completes,
         reducing startup latency.

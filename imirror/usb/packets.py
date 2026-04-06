@@ -3,7 +3,7 @@ Valeria Protocol Packet Definitions.
 
 This module implements the packet codec for Apple's proprietary USB AV streaming
 protocol (internally called "Valeria" by Apple). This protocol is what QuickTime
-and tools like AnyMiro use for high-quality screen mirroring over USB.
+uses for high-quality screen mirroring over USB.
 
 Protocol reference: https://github.com/danielpaulus/quicktime_video_hack/blob/master/doc/technical_documentation.md
 
@@ -285,7 +285,7 @@ def build_asyn_hpd1(
     resolution and codec support. Without this dict, the iPhone may default to
     the lowest resolution or refuse to start streaming.
 
-    AnyMiro sends::
+    The protocol expects a capabilities dictionary::
 
         {
             "Valeria": True,
@@ -331,7 +331,7 @@ def build_asyn_hpa1(device_audio_clock_ref: bytes) -> bytes:
     and playback parameters. Without this dict, the iPhone may not send audio or
     may use an unexpected format.
 
-    AnyMiro sends::
+    The protocol expects an audio configuration dictionary::
 
         {
             "BufferAheadInterval": 0.073,
@@ -349,9 +349,9 @@ def build_asyn_hpa1(device_audio_clock_ref: bytes) -> bytes:
         Complete ASYN HPA1 packet bytes.
     """
     # AudioStreamBasicDescription (40 bytes base + 16 bytes extra = 56 bytes)
-    # AnyMiro's AudioStreamBasicDescription.to_bytes() produces 56 bytes:
-    # the standard 40-byte ASBD struct followed by SampleRate repeated twice
-    # as float64. The iPhone expects this extended format.
+    # The extended ASBD is 56 bytes: the standard 40-byte ASBD struct followed
+    # by SampleRate repeated twice as float64. The iPhone expects this
+    # extended format.
     asbd = struct.pack("<dIIIIIIII",
         48000.0,      # SampleRate (float64)
         0x6C70636D,   # FormatID = "lpcm"
@@ -363,7 +363,7 @@ def build_asyn_hpa1(device_audio_clock_ref: bytes) -> bytes:
         16,           # BitsPerChannel
         0,            # Reserved
     )
-    # AnyMiro appends SampleRate twice as float64 in its to_bytes() method
+    # Append SampleRate twice as float64 (extended ASBD format)
     asbd += struct.pack("<dd", 48000.0, 48000.0)
 
     # Audio configuration dict
