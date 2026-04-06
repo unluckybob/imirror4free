@@ -64,6 +64,7 @@ class ScreenRecorder:
         self._frame_count: int = 0
         self._lock = threading.Lock()
         self._first_keyframe_received = False
+        self._first_pts_ns: Optional[int] = None  # For PTS calculation
 
     @property
     def state(self) -> RecordingState:
@@ -131,6 +132,7 @@ class ScreenRecorder:
             self._start_time = time.monotonic()
             self._frame_count = 0
             self._first_keyframe_received = False
+            self._first_pts_ns = None
             self._state = RecordingState.RECORDING
 
             logger.info("Recording started: %s", output_path)
@@ -140,6 +142,29 @@ class ScreenRecorder:
             logger.error("Failed to start recording: %s", e)
             self._state = RecordingState.ERROR
             return False
+
+    def set_video_format(self, width: int, height: int,
+                         extradata: Optional[bytes] = None) -> None:
+        """Set video codec parameters on the stream.
+
+        Must be called before the first keyframe arrives so the MP4
+        container header has correct width/height and SPS/PPS extradata.
+        Safe to call multiple times — only the first call has effect.
+        """
+        if self._video_stream is None:
+            return
+        try:
+            ctx = self._video_stream.codec_context
+            if width > 0:
+                ctx.width = width
+            if height > 0:
+                ctx.height = height
+            if extradata:
+                ctx.extradata = extradata
+            logger.debug("Video format set: %dx%d, extradata=%s",
+                        width, height, f"{len(extradata)}B" if extradata else "none")
+        except Exception as e:
+            logger.debug("Could not set video format params: %s", e)
 
     def stop(self) -> Optional[str]:
         """Stop recording and close the file.
@@ -171,11 +196,19 @@ class ScreenRecorder:
                     path, duration, self._frame_count)
         return path
 
-    def feed_video(self, h264_data: bytes, is_keyframe: bool) -> None:
+    def feed_video(self, h264_data: bytes, is_keyframe: bool,
+                   timestamp_ns: int = 0) -> None:
         """Feed an H.264 frame to the recorder.
 
         The recording must start on a keyframe — non-keyframes before
         the first keyframe are silently dropped.
+
+        Args:
+            h264_data: Annex B H.264 NAL unit data.
+            is_keyframe: Whether this is an IDR keyframe.
+            timestamp_ns: Device presentation timestamp in nanoseconds
+                          (from CMSampleBuffer). Used for accurate PTS.
+                          Falls back to frame-count PTS if 0.
         """
         if self._state != RecordingState.RECORDING:
             return
@@ -196,8 +229,18 @@ class ScreenRecorder:
                 packet = av.Packet(h264_data)
                 packet.stream = self._video_stream
 
-                # Calculate PTS based on frame count
-                pts = int(self._frame_count * 90000 / 30)  # 90kHz timebase
+                # Calculate PTS: prefer actual device timestamps for correct timing.
+                # Using the CMSampleBuffer PTS eliminates encoder jitter and handles
+                # variable-rate streams (e.g. 60→30 FPS on orientation change).
+                if timestamp_ns > 0:
+                    if self._first_pts_ns is None:
+                        self._first_pts_ns = timestamp_ns
+                    relative_ns = timestamp_ns - self._first_pts_ns
+                    pts = int(relative_ns * 90000 / 1_000_000_000)  # ns → 90kHz
+                else:
+                    # Fallback: assume constant 30 FPS (timebase = 90kHz)
+                    pts = int(self._frame_count * 90000 / 30)
+
                 packet.pts = pts
                 packet.dts = pts
                 packet.is_keyframe = is_keyframe
