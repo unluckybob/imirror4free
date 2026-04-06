@@ -71,7 +71,7 @@ class _Config:
         self.audio_sample_rate: int = 48000
         self.audio_channels: int = 2
         self.audio_volume: float = 1.0            # 0.0 to 1.0
-        self.audio_buffer_ms: int = 80            # Ring buffer size in ms
+        self.audio_buffer_ms: int = 73            # Match AnyMiro's BufferAheadInterval (73ms)
         self.audio_muted: bool = False
 
         # ── Rendering ──────────────────────────────────────────────
