@@ -26,47 +26,54 @@ logger = logging.getLogger(__name__)
 # ─── Magic constants (little-endian) ────────────────────────────────
 
 class Magic:
-    """4-byte magic identifiers used throughout the protocol."""
-    PING = b"ping"      # 0x676E6970
-    SYNC = b"sync"      # 0x636E7973
-    ASYN = b"asyn"      # 0x6E797361
-    RPLY = b"rply"      # 0x796C7072
+    """4-byte magic identifiers in little-endian wire format.
+
+    Apple's Valeria protocol stores all FourCC codes as little-endian uint32
+    on the wire, so "ping" (0x70696E67) becomes bytes 67 6E 69 70 = b"gnip".
+
+    Reference: https://github.com/danielpaulus/quicktime_video_hack/blob/master/doc/technical_documentation.md
+    """
+    # Protocol packet types
+    PING = b"gnip"           # "ping" LE → 67 6E 69 70
+    SYNC = b"cnys"           # "sync" LE → 63 6E 79 73
+    ASYN = b"nysa"           # "asyn" LE → 6E 79 73 61
+    RPLY = b"ylpr"           # "rply" LE → 79 6C 70 72
 
     # SYNC subtypes
-    CWPA = b"cwpa"      # Create audio clock
-    AFMT = b"afmt"      # Audio format description
-    CVRP = b"cvrp"      # Create video clock + format description
-    CLOK = b"clok"      # Create clock
-    TIME = b"time"      # Time request
-    SKEW = b"skew"      # Clock skew
-    OG   = b"og! "      # Unknown, reply with zeros
-    STOP = b"stop"      # Stop clock
+    CWPA = b"apwc"           # "cwpa" LE — Create audio clock
+    AFMT = b"tmfa"           # "afmt" LE — Audio format description
+    CVRP = b"prvc"           # "cvrp" LE — Create video clock + format desc
+    CLOK = b"kolc"           # "clok" LE — Create clock
+    TIME = b"emit"           # "time" LE — Time request
+    SKEW = b"weks"           # "skew" LE — Clock skew
+    OG   = b"\x20\x21og"    # "go! " LE → 20 21 6F 67 — Unknown, reply with zeros
+    STOP = b"pots"           # "stop" LE — Stop clock
 
     # ASYN subtypes
-    FEED = b"feed"      # H.264 video CMSampleBuffer
-    EAT  = b"eat!"      # Audio CMSampleBuffer
-    NEED = b"need"      # Request more video frames
-    SPRP = b"sprp"      # Set property
-    SRAT = b"srat"      # Set rate and anchor
-    TBAS = b"tbas"      # Set timebase
-    TJMP = b"tjmp"      # Time jump
-    HPD1 = b"hpd1"      # Start video streaming
-    HPD0 = b"hpd0"      # Stop video streaming
-    HPA1 = b"hpa1"      # Start audio streaming
-    HPA0 = b"hpa0"      # Stop audio streaming
-    RELS = b"rels"      # Clock released
+    FEED = b"deef"           # "feed" LE — H.264 video CMSampleBuffer
+    EAT  = b"!tae"           # "eat!" LE — Audio CMSampleBuffer
+    NEED = b"deen"           # "need" LE — Request more video frames
+    SPRP = b"prps"           # "sprp" LE — Set property
+    SRAT = b"tars"           # "srat" LE — Set rate and anchor
+    TBAS = b"sabt"           # "tbas" LE — Set timebase
+    TJMP = b"pmjt"           # "tjmp" LE — Time jump
+    HPD1 = b"1dph"           # "hpd1" LE — Start video streaming
+    HPD0 = b"0dph"           # "hpd0" LE — Stop video streaming
+    HPA1 = b"1aph"           # "hpa1" LE — Start audio streaming
+    HPA0 = b"0aph"           # "hpa0" LE — Stop audio streaming
+    RELS = b"sler"           # "rels" LE — Clock released
 
-    # Dictionary/serialization
-    DICT = b"dict"      # Dictionary
-    KEYV = b"keyv"      # Key-value pair
-    STRK = b"strk"      # String key
-    STRV = b"strv"      # String value
-    BULV = b"bulv"      # Boolean value
-    DATV = b"datv"      # Data (byte array) value
-    NMBV = b"nmbv"      # NSNumber value
-    FDSC = b"fdsc"      # CMFormatDescription
-    SBUF = b"sbuf"      # CMSampleBuffer
-    IDXK = b"idxk"      # Index key (integer key dict)
+    # Dictionary / serialization
+    DICT = b"tcid"           # "dict" LE — Dictionary container
+    KEYV = b"vyek"           # "keyv" LE — Key-value pair
+    STRK = b"krts"           # "strk" LE — String key
+    STRV = b"vrts"           # "strv" LE — String value
+    BULV = b"vlub"           # "bulv" LE — Boolean value
+    DATV = b"vtad"           # "datv" LE — Data (byte array) value
+    NMBV = b"vbmn"           # "nmbv" LE — NSNumber value
+    FDSC = b"csdf"           # "fdsc" LE — CMFormatDescription
+    SBUF = b"fubs"           # "sbuf" LE — CMSampleBuffer
+    IDXK = b"kxdi"           # "idxk" LE — Index key (integer key dict)
 
 
 class PacketType(Enum):
@@ -173,7 +180,7 @@ def read_packet(data: bytes) -> Optional[Packet]:
             length=length,
             packet_type=PacketType.PING,
             clock_ref=data[8:16] if len(data) >= 16 else b"\x00" * 8,
-            subtype=b"ping",
+            subtype=b"gnip"  # PING in wire format,
             payload=data[16:length] if len(data) > 16 else b"",
             raw=data[:length],   # verbatim — echoed back as-is per Valeria spec
         )
@@ -583,13 +590,13 @@ def parse_cmsamplebuffer(payload: bytes) -> Optional[ParsedCMSampleBuffer]:
         data_start = pos + 8
         data_len = section_len - 8
 
-        if section_magic == b"opts":
+        if section_magic == b"stpo"  # "opts" LE:
             # OutputPresentationTimestamp: 24-byte CMTime at offset 0 within section data
             if data_len >= 24:
                 result.pts_value = struct.unpack_from("<q", payload, data_start)[0]
                 result.pts_timescale = struct.unpack_from("<i", payload, data_start + 8)[0]
 
-        elif section_magic == b"sdat":
+        elif section_magic == b"tads"  # "sdat" LE:
             # SampleData — the actual H.264 AVCC or raw PCM bytes
             result.sample_data = payload[data_start:data_start + data_len]
 
@@ -598,7 +605,7 @@ def parse_cmsamplebuffer(payload: bytes) -> Optional[ParsedCMSampleBuffer]:
             result.has_format_description = True
             result.format_description_bytes = payload[pos:pos + section_len]
 
-        elif section_magic == b"nsmp":
+        elif section_magic == b"pmsn"  # "nsmp" LE:
             # NumSamples
             if data_len >= 4:
                 result.num_samples = struct.unpack_from("<I", payload, data_start)[0]
