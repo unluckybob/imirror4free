@@ -256,11 +256,16 @@ def build_rply_with_clock(correlation_id: bytes, error: int, clock_ref: bytes) -
 
 
 def build_rply_with_dict_error(correlation_id: bytes, error: int = 0) -> bytes:
-    """Build a RPLY with a dictionary containing an Error key."""
-    # Build dict: {"Error": NSNumber(error)}
+    """Build a RPLY with a dictionary containing an Error key.
+
+    Used for AFMT replies. The payload is the serialised dict directly —
+    unlike CWPA/CVRP/CLOK replies there is NO separate 4-byte error-code
+    prefix.  The old code prepended ``struct.pack('<I', 0)`` which shifted
+    the dict magic by 4 bytes, causing the iPhone's AFMT reply parser to
+    fail and stall the handshake before CVRP was ever sent.
+    """
     error_dict = build_dict_with_error(error)
-    payload = struct.pack("<I", 0) + error_dict
-    return build_rply(correlation_id, payload)
+    return build_rply(correlation_id, error_dict)
 
 
 def build_asyn_need(device_clock_ref: bytes) -> bytes:
@@ -823,6 +828,5 @@ def extract_pcm_from_eat(payload: bytes) -> Optional[bytes]:
     else:
         logger.debug("No CMSampleBuffer/sdat found in EAT! payload (%d bytes)", len(payload))
     return None
-
 
 
