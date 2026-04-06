@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
     error_signal = pyqtSignal(str, str)  # title, message
     recording_state_changed = pyqtSignal(bool)  # is_recording
     disconnected_signal = pyqtSignal()  # stream ended / device unplugged
+    driver_check_signal = pyqtSignal(object)  # DriverStatus — emitted from bg thread
 
     def __init__(self):
         super().__init__()
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
         self.error_signal.connect(self._on_error)
         self.recording_state_changed.connect(self._on_recording_state_changed)
         self.disconnected_signal.connect(self._on_disconnected)
+        self.driver_check_signal.connect(self._on_driver_status_checked)
 
         # Timers
         self._stats_timer = QTimer(self)
@@ -441,6 +443,9 @@ class MainWindow(QMainWindow):
                 self._device_manager = DeviceManager()
                 self._device_manager.start()
 
+            # Check driver status from startup diagnostics and update UI
+            self._update_driver_ui_from_diagnostics()
+
             device = self._device_manager.first_device
             if device:
                 self._waiting_status.setText(f"iPhone detected: {device.display_name}")
@@ -512,7 +517,24 @@ class MainWindow(QMainWindow):
             capture.on_stream_stopped(self._on_stream_ended)
 
             if not capture.start(udid):
-                raise RuntimeError(capture._init_error or "Valeria stream failed to start")
+                error_type = capture.error_type
+                error_msg = capture._init_error or "Valeria stream failed to start"
+
+                # Handle driver-related failures with targeted UI prompts
+                if error_type == "driver_needed":
+                    self._is_connected = False
+                    QTimer.singleShot(200, lambda: self._prompt_driver_install_auto("driver_needed"))
+                    return
+                elif error_type == "claim_failed":
+                    self._is_connected = False
+                    QTimer.singleShot(200, lambda: self._prompt_driver_install_auto("claim_failed"))
+                    return
+                elif error_type == "driver_replug":
+                    self._is_connected = False
+                    QTimer.singleShot(200, self._prompt_replug)
+                    return
+
+                raise RuntimeError(error_msg)
 
             self._consecutive_failures = 0  # Reset on successful stream start
             self.status_update.emit("Valeria stream active — receiving from iPhone")
@@ -717,6 +739,7 @@ class MainWindow(QMainWindow):
                 )
                 self._waiting_status.setText("Driver installed — please replug your iPhone")
                 self._btn_install_driver.setVisible(False)
+                self._driver_status_label.setText("Driver installed ✓ — replug your iPhone to activate")
             else:
                 QMessageBox.warning(self, "Driver Installation Failed",
                                    f"[FAIL] {result.message}")
@@ -748,6 +771,75 @@ class MainWindow(QMainWindow):
                                    f"[FAIL] {result.message}")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+
+    def _update_driver_ui_from_diagnostics(self) -> None:
+        """Read startup diagnostics and show driver install button if needed."""
+        if not self._device_manager:
+            return
+        diag = self._device_manager.diagnostics
+        if not diag:
+            return
+        driver_status = diag.get("driver_status")
+        if driver_status and not driver_status.libusb_accessible:
+            self._btn_install_driver.setVisible(True)
+            if driver_status.iphone_detected:
+                self._driver_status_label.setText(
+                    "Mirror driver required for USB streaming"
+                )
+            else:
+                self._driver_status_label.setText(
+                    "Mirror driver required — you'll be prompted to install it when your iPhone connects"
+                )
+
+    def _on_driver_status_checked(self, status) -> None:
+        """Called on main thread when a background driver status check completes."""
+        if not status.libusb_accessible:
+            self._btn_install_driver.setVisible(True)
+            self._driver_status_label.setText("Mirror driver required for USB streaming")
+        else:
+            self._btn_install_driver.setVisible(False)
+            self._driver_status_label.setText("")
+
+    def _prompt_driver_install_auto(self, error_type: str) -> None:
+        """Auto-prompt driver installation when Valeria stream fails due to driver issues."""
+        self._btn_install_driver.setVisible(True)
+
+        if error_type == "claim_failed":
+            title = "Mirror Driver Issue"
+            msg = (
+                "IMIRROR4FREE couldn't claim the iPhone's AV streaming interface.\n\n"
+                "This usually means the WinUSB mirror driver needs to be reinstalled.\n\n"
+                "Would you like to reinstall it now? (requires admin approval)"
+            )
+        else:
+            title = "Mirror Driver Required"
+            msg = (
+                "IMIRROR4FREE needs a USB mirror driver to stream from your iPhone.\n\n"
+                "\u2022 One-time setup (~10 seconds)\n"
+                "\u2022 Requires administrator approval (UAC prompt)\n"
+                "\u2022 You'll need to replug your iPhone after installation\n\n"
+                "Install now?"
+            )
+
+        reply = QMessageBox.question(
+            self, title, msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._install_driver()
+        else:
+            self._waiting_status.setText("Mirror driver needed — click \u2018Install Mirror Driver\u2019 below")
+            self._driver_status_label.setText("Without the driver, USB streaming is unavailable")
+
+    def _prompt_replug(self) -> None:
+        """Show replug instructions when driver is installed but iPhone needs reconnection."""
+        self._waiting_status.setText("Please unplug and replug your iPhone")
+        QMessageBox.information(
+            self, "Replug iPhone",
+            "The mirror driver is installed, but your iPhone needs to be\n"
+            "replugged to activate it.\n\n"
+            "Please unplug and replug your USB cable."
+        )
 
     def _check_driver_status(self) -> None:
         """Check and display driver status."""
