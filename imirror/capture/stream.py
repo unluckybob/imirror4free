@@ -782,6 +782,16 @@ class ValeriaStreamCapture(CaptureBackend):
 
         height, width = rgb_array.shape[:2]
 
+        # Update session video dimensions from first decoded frame.
+        # ValeriaSession doesn't parse SPS for width/height, so we
+        # backfill from the actual decoded frame. This is needed for
+        # recording (set_video_format) and the video_format property.
+        if self._session and (width > 0) and (height > 0):
+            if self._session._video_width == 0:
+                self._session._video_width = width
+                self._session._video_height = height
+                logger.info("Video dimensions detected from decode: %dx%d", width, height)
+
         now = time.monotonic()
         self._frame_times.append(now)
         if len(self._frame_times) >= 2:
