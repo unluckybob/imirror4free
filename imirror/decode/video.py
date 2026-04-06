@@ -199,7 +199,12 @@ class VideoDecoder:
 
             # Low-latency flags
             if config.decoder_low_delay:
-                ctx.flags |= 0x0001
+                ctx.flags |= 0x0001       # AV_CODEC_FLAG_LOW_DELAY
+                ctx.flags2 |= 0x00000001  # AV_CODEC_FLAG2_FAST — skip motion est refinements
+
+            # Skip deblocking filter — screen content (UI/text) doesn't benefit
+            # from it and skipping saves ~5-15% CPU per decoded frame
+            ctx.options = {"skip_loop_filter": "all"}
 
             if width > 0 and height > 0:
                 ctx.width = width
