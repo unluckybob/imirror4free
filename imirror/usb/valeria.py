@@ -300,7 +300,7 @@ class ValeriaSession:
         # 3. ASYN(hpd1)  - display notify repeat (sent TWICE per exchange)
         # 4. ASYN(hpa1)  - audio channel notify
         # Multiple Valeria messages can coexist in one USB bulk transfer.
-        hpd1 = build_asyn_hpd1(clock_ref=b"\x01" + b"\x00" * 7, width=1920, height=1080)
+        hpd1 = build_asyn_hpd1(clock_ref=b"\x01" + b"\x00" * 7, width=3840, height=2160)
         rply = build_rply_with_clock(corr_id, 0, self._local_audio_clock_ref)
         hpa1 = build_asyn_hpa1(self._device_audio_clock_ref)
         return hpd1 + rply + hpd1 + hpa1

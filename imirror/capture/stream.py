@@ -451,18 +451,32 @@ class ValeriaStreamCapture(CaptureBackend):
 
         logger.info("Valeria protocol loop starting...")
 
-        # ── Send initial PING to iPhone ───────────────────────────────
-        # USB capture of AnyMiro confirmed: the HOST sends PING first.
-        # iPhone waits for the host PING and then echoes it back (~1s later).
-        # Previously this was inverted (waiting for iPhone to send first),
-        # causing a permanent deadlock — both sides waiting for the other.
-        logger.info("Sending initial PING to iPhone...")
-        try:
-            self._endpoint.write(build_ping())
-        except Exception as _e:
-            logger.warning("Failed to send initial PING: %s", _e)
+        # ── PING handshake ────────────────────────────────────────────
+        # Per the Valeria protocol reference and AnyMiro workflow:
+        # The iPhone sends PING first after the AV interface is claimed.
+        # The host must echo the exact 16 bytes back.
+        # ValeriaSession._handle_ping() handles the echo.
+        #
+        # NOTE: If the iPhone doesn't send PING within 10s, fall back to
+        # sending PING ourselves (some firmware versions may expect this).
+        logger.info("Waiting for iPhone PING...")
+        _ping_wait_start = time.monotonic()
+        _ping_fallback_sent = False
 
         while self._running:
+            # Fallback: If iPhone hasn't sent PING after 10s, send ours.
+            # Some firmware/iOS versions or quick re-connections may expect
+            # the host to initiate.  This covers both protocol variants.
+            if (not self._streaming_started
+                    and not _ping_fallback_sent
+                    and not self._handshake_done.is_set()
+                    and time.monotonic() - _ping_wait_start > 10.0):
+                logger.info("No PING from iPhone after 10s — sending PING as fallback")
+                try:
+                    self._endpoint.write(build_ping())
+                    _ping_fallback_sent = True
+                except Exception as _e:
+                    logger.warning("Fallback PING send failed: %s", _e)
             # ── Read from USB ───────────────────────────────────────
             try:
                 # During handshake (before streaming starts) use a small read
