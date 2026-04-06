@@ -8,6 +8,6 @@ No companion app required. No WiFi. Just plug in and go.
 """
 
 __app_name__ = "IMIRROR4FREE"
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __author__ = "unluckybob"
 __license__ = "GPL-3.0"
