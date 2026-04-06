@@ -70,6 +70,8 @@ class MainWindow(QMainWindow):
         self._current_frame: Optional[np.ndarray] = None
         self._is_connected = False
         self._is_recording = False
+        self._consecutive_failures = 0
+        self._last_capture_failure = 0.0
 
         # Build UI
         self._build_menu_bar()
@@ -423,6 +425,14 @@ class MainWindow(QMainWindow):
         if self._is_connected:
             return
 
+        # Exponential backoff after consecutive capture failures.
+        # Prevents the 2-second retry storm seen when the interface
+        # is stuck in an unclaimable state after a pipe error.
+        if self._consecutive_failures > 0:
+            cooldown = min(self._consecutive_failures * 5, 30)
+            if time.time() - self._last_capture_failure < cooldown:
+                return
+
         try:
             from imirror.usb.device_manager import DeviceManager
             if self._device_manager is None:
@@ -502,6 +512,7 @@ class MainWindow(QMainWindow):
             if not capture.start(udid):
                 raise RuntimeError(capture._init_error or "Valeria stream failed to start")
 
+            self._consecutive_failures = 0  # Reset on successful stream start
             self.status_update.emit("Valeria stream active — receiving from iPhone")
 
         except Exception as e:
@@ -537,6 +548,8 @@ class MainWindow(QMainWindow):
         """Called from valeria stream thread when stream stops — emit signal for UI thread."""
         self._is_connected = False
         self._capture_backend = None
+        self._consecutive_failures += 1
+        self._last_capture_failure = time.time()
         self.disconnected_signal.emit()
 
     def _on_disconnected(self) -> None:
@@ -548,7 +561,12 @@ class MainWindow(QMainWindow):
         self._action_screenshot.setEnabled(False)
         self._action_record.setEnabled(False)
         self._fps_status_label.setText("")
-        self._waiting_status.setText("Disconnected — reconnect your iPhone")
+        if self._consecutive_failures >= 3:
+            self._waiting_status.setText(
+                "Multiple connection failures — try unplugging and replugging your iPhone"
+            )
+        else:
+            self._waiting_status.setText("Disconnected — reconnect your iPhone")
         if self._is_recording:
             self._stop_recording()
         self._audio_player = None
