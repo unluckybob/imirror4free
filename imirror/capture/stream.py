@@ -44,7 +44,7 @@ from imirror.capture.base import CaptureBackend, CapturedFrame
 from imirror.config import config
 from imirror.usb.packets import (
     Magic, PacketType, Packet, VideoFrame, AudioSample,
-    read_packet,
+    read_packet, build_ping,
 )
 
 logger = logging.getLogger(__name__)
@@ -451,12 +451,16 @@ class ValeriaStreamCapture(CaptureBackend):
 
         logger.info("Valeria protocol loop starting...")
 
-        # ── Wait for iPhone-initiated PING ────────────────────────────
-        # Protocol analysis confirms the iPhone sends PING first.
-        # The host must wait for the iPhone's PING and respond with its
-        # own PING packet. Sending PING first can confuse the iPhone's
-        # protocol state machine.
-        logger.info("Waiting for iPhone PING to start handshake...")
+        # ── Send initial PING to iPhone ───────────────────────────────
+        # USB capture of AnyMiro confirmed: the HOST sends PING first.
+        # iPhone waits for the host PING and then echoes it back (~1s later).
+        # Previously this was inverted (waiting for iPhone to send first),
+        # causing a permanent deadlock — both sides waiting for the other.
+        logger.info("Sending initial PING to iPhone...")
+        try:
+            self._endpoint.write(build_ping())
+        except Exception as _e:
+            logger.warning("Failed to send initial PING: %s", _e)
 
         while self._running:
             # ── Read from USB ───────────────────────────────────────
@@ -568,11 +572,9 @@ class ValeriaStreamCapture(CaptureBackend):
                 elif packet.packet_type == PacketType.SYNC:
                     if packet.subtype == Magic.CWPA:
                         logger.info("CWPA received — audio clock negotiated")
-                        # Send HPD1 + HPA1 immediately after CWPA to reduce
-                        # startup latency — the iPhone begins preparing
-                        # streams while CVRP/CLOK/TIME/SKEW complete.
-                        if not self._hpd1_hpa1_sent:
-                            self._send_hpd1_hpa1()
+                        # HPD1 + RPLY(cwpa) + HPD1 + HPA1 are returned directly
+                        # from valeria._handle_cwpa() and written above.
+                        # No separate send needed here.
 
                     elif packet.subtype == Magic.AFMT:
                         logger.info("AFMT received — audio format accepted")
@@ -592,23 +594,16 @@ class ValeriaStreamCapture(CaptureBackend):
                             else:
                                 logger.warning("Decoder initialized WITHOUT SPS/PPS — may fail until keyframe")
 
-                        # Protocol flow: NEED is sent after CLOK, not after CVRP.
-                        # The iPhone sends CLOK right after CVRP, and only then
-                        # expects the NEED request. Defer to CLOK handler below.
-                        if not self._hpd1_hpa1_sent:
-                            # Fallback if CWPA was missed — send everything now
-                            self._start_streaming()
+                        # NEED + RPLY(cvrp) already sent by valeria._handle_cvrp().
+                        # Mark streaming started now.
+                        if not self._streaming_started:
+                            self._streaming_started = True
+                            self._hpd1_hpa1_sent = True
+                            logger.info("[STREAM] Streaming started — NEED sent with CVRP response")
 
                     elif packet.subtype == Magic.CLOK:
                         logger.info("CLOK received — clock created")
-                        # NEED is sent after the first CLOK that follows CVRP
-                        # (protocol step 20). This is when the iPhone is fully
-                        # ready to deliver video frames.
-                        if self._cvrp_received and not self._streaming_started:
-                            if self._hpd1_hpa1_sent:
-                                self._start_streaming_need_only()
-                            else:
-                                self._start_streaming()
+                        # NEED was already sent with CVRP. Nothing to do here.
 
             # ── Periodic NEED keepalive ─────────────────────────────
             # Primary NEED is sent per-FEED above. This timer is a
