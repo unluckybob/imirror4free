@@ -468,8 +468,24 @@ class ValeriaStreamCapture(CaptureBackend):
                 # which causes PING to be lost and the handshake to never start.
                 # Once streaming is confirmed we switch to the full buffer size
                 # for high-throughput video reads.
-                _hs_read_size = 4096 if not self._streaming_started else read_size
-                data = self._endpoint.read(size=_hs_read_size, timeout=read_timeout)
+                # During handshake (before PING), use 4096-byte reads AND a long
+                # timeout (5000ms) so the pending WinUSB URB stays open long enough
+                # to capture the iPhone's 16-byte PING packet.
+                #
+                # With a 100ms timeout: if PING arrives as the timeout fires,
+                # WinUSB cancels the pending read and DISCARDS the received bytes.
+                # This is a ~50/50 race since iPhone sends PING ~100ms after claim.
+                # With 5000ms: PING arrives well within the window every time.
+                # (If PING doesn't arrive in 5s we treat it as a timeout and retry.)
+                #
+                # During streaming we go back to 100ms for responsive health checks.
+                if not self._streaming_started:
+                    _hs_read_size = 4096
+                    _hs_timeout = 5000
+                else:
+                    _hs_read_size = read_size
+                    _hs_timeout = read_timeout
+                data = self._endpoint.read(size=_hs_read_size, timeout=_hs_timeout)
                 if data:
                     read_buffer.extend(data)
                     last_data_time = time.monotonic()
