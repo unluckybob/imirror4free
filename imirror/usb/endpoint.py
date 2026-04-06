@@ -350,7 +350,7 @@ class USBEndpoint:
                     self._dev.set_configuration(QT_CONFIG_VALUE)
                     logger.debug(
                         "Re-enum attempt %d: set_configuration(%d) called — "
-                        "waiting 3s for WinUSB binding",
+                        "waiting 5s for WinUSB binding",
                         attempt, QT_CONFIG_VALUE,
                     )
                 except Exception as set_cfg_err:
@@ -359,16 +359,34 @@ class USBEndpoint:
                         attempt, QT_CONFIG_VALUE, set_cfg_err,
                     )
                 set_config_attempted = True
-                time.sleep(3.0)
+                # Increased from 3s to 5s: first-ever Config 5 binding takes
+                # longer than subsequent ones because WinUSB must install the
+                # driver INF for the new interface configuration.
+                time.sleep(5.0)
+                # Flush descriptor cache after set_configuration() — same as
+                # we do on first device reappear — so has_qt_config() sees the
+                # newly active configuration rather than a stale cached view.
+                self._init_backend()
+                kwargs_after_sc = {"idVendor": APPLE_VENDOR_ID, "find_all": True}
+                if self._backend:
+                    kwargs_after_sc["backend"] = self._backend
+                try:
+                    import usb.core as _usb_sc
+                    sc_devs = list(_usb_sc.find(**kwargs_after_sc))
+                    if sc_devs:
+                        self._dev = sc_devs[0]
+                except Exception:
+                    pass
                 continue
 
             # ── Optimistic fallthrough after sufficient wait ───────────
             # has_qt_config() uses get_active_configuration() which may fail on
             # some Windows/WinUSB setups even when Config 5 is genuinely active.
-            # After the device has been present for 8+ seconds (which includes the
-            # WinUSB binding wait + set_configuration delay), proceed and let
-            # claim_av_endpoints() make the final determination.
-            if elapsed_reappear >= 8.0:
+            # Threshold raised to 15 s (was 8 s): on first-ever connection WinUSB
+            # needs 10-15 s to bind Config 5's interface for the first time.
+            # Keeping the threshold low caused the first attempt to always fail
+            # because we bailed out before WinUSB finished its driver INF install.
+            if elapsed_reappear >= 15.0:
                 logger.warning(
                     "Re-enum: has_qt_config() still False after %.1fs since reappear "
                     "— proceeding optimistically (WinUSB may have bound Config 5)",
