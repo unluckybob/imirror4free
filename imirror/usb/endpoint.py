@@ -214,15 +214,27 @@ class USBEndpoint:
 
             return False
 
-    def wait_for_reenumeration(self, timeout: float = 15.0) -> bool:
+    def wait_for_reenumeration(self, timeout: float = 30.0) -> bool:
         """Wait for the iPhone to re-enumerate with QT AV config.
 
         After enable_qt_config(), the iPhone disconnects and reconnects
         with Configuration 5 active. This method polls until the new
         device appears with the AV interface.
 
+        On Windows, the re-enumeration is a two-stage process:
+          1. iPhone disconnects and reconnects on the USB bus (~1–2 s)
+          2. WinUSB installs/binds the driver for the new configuration
+             (~3–5 s) before the interface is accessible via libusb
+
+        Calling set_configuration() more than once during this window
+        causes the iPhone to reset again (another disconnect/reconnect),
+        resetting the countdown. We therefore call set_configuration()
+        exactly ONCE per device appearance and then wait 3 s for WinUSB
+        to complete driver binding before checking has_qt_config().
+
         Args:
-            timeout: Maximum seconds to wait.
+            timeout: Maximum seconds to wait (default raised to 30 s to
+                     accommodate Windows WinUSB two-stage binding).
 
         Returns:
             True if the device was found with QT config active.
@@ -232,23 +244,24 @@ class USBEndpoint:
         logger.info("Waiting up to %.0fs for iPhone to re-enumerate...", timeout)
 
         # Brief pause for the iPhone to begin re-enumeration.
-        # USB trace shows re-enumeration completes in ~2.4s; the device
-        # disappears almost immediately, so 0.5s is enough before polling.
+        # USB trace shows re-enumeration completes in ~1-2s on most devices.
         time.sleep(0.5)
 
         start = time.monotonic()
         attempt = 0
 
+        # Track whether set_configuration() has been called for the current
+        # device appearance, so we never call it twice on the same handle.
+        set_config_attempted = False
+
+        # Initialize backend ONCE before the loop.  Re-initializing on every
+        # iteration (previous behaviour) can interfere with WinUSB driver
+        # binding on Windows; we only re-init when the device disappears.
+        self._init_backend()
+
         while time.monotonic() - start < timeout:
             attempt += 1
             time.sleep(0.5)
-
-            # ── Reinitialize the libusb backend each attempt ────────
-            # On Windows/WinUSB, the backend's internal device list can
-            # become stale after a device re-enumerates (new bus address,
-            # new WinUSB driver binding).  Re-initializing forces a
-            # completely fresh libusb_get_device_list() call.
-            self._init_backend()
 
             kwargs = {"idVendor": APPLE_VENDOR_ID, "find_all": True}
             if self._backend:
@@ -258,52 +271,59 @@ class USBEndpoint:
                 devices = list(usb.core.find(**kwargs))
             except Exception:
                 logger.debug("Re-enum attempt %d: usb.core.find error", attempt)
+                # Re-init backend on find error (stale device list)
+                self._init_backend()
                 continue
 
             if not devices:
                 logger.debug("Re-enum attempt %d: device not yet back", attempt)
+                # Device has gone away again — reset state and refresh backend
+                set_config_attempted = False
+                self._init_backend()
                 continue
 
             self._dev = devices[0]
 
             # ── Check if QT config is ALREADY active ────────────────
             # After re-enumeration the iPhone typically comes back with
-            # Configuration 5 already selected.  Check BEFORE calling
-            # set_configuration() — on Windows/WinUSB, calling
-            # set_configuration() on a device that already has the
-            # target config can corrupt the handle, causing subsequent
-            # get_active_configuration() / config iteration to fail.
+            # Configuration 5 already selected by the time WinUSB finishes
+            # driver binding.  If has_qt_config() returns True we're done.
             if self.has_qt_config():
                 logger.info(
                     "Re-enumeration complete (attempt %d, %.1fs) "
-                    "— QT AV config already active",
+                    "— QT AV config active",
                     attempt, time.monotonic() - start,
                 )
                 return True
 
-            # ── Config not yet active — try to activate it ──────────
-            try:
-                self._dev.set_configuration(QT_CONFIG_VALUE)
-                logger.debug(
-                    "Re-enum attempt %d: set_configuration(%d) OK",
-                    attempt, QT_CONFIG_VALUE,
-                )
-            except Exception as set_cfg_err:
-                logger.debug(
-                    "Re-enum attempt %d: set_configuration(%d): %s",
-                    attempt, QT_CONFIG_VALUE, set_cfg_err,
-                )
-
-            if self.has_qt_config():
-                logger.info(
-                    "Re-enumeration complete (attempt %d, %.1fs) "
-                    "— QT AV config active after set_configuration",
-                    attempt, time.monotonic() - start,
-                )
-                return True
+            # ── Config not yet active — call set_configuration() ONCE ──
+            # We call it once and then give WinUSB 3 seconds to finish
+            # binding the interface.  Calling it again immediately (old
+            # behaviour) would reset the iPhone and restart the whole
+            # re-enumeration cycle, which is why the 15 s timeout was
+            # always hit even when the iPhone came back in ~1 second.
+            if not set_config_attempted:
+                try:
+                    self._dev.set_configuration(QT_CONFIG_VALUE)
+                    logger.debug(
+                        "Re-enum attempt %d: set_configuration(%d) sent — "
+                        "waiting 3 s for WinUSB driver binding",
+                        attempt, QT_CONFIG_VALUE,
+                    )
+                except Exception as set_cfg_err:
+                    logger.debug(
+                        "Re-enum attempt %d: set_configuration(%d): %s",
+                        attempt, QT_CONFIG_VALUE, set_cfg_err,
+                    )
+                set_config_attempted = True
+                # Sleep here (inside the loop) — the main loop sleep of 0.5 s
+                # is not enough; WinUSB binding typically takes 2–4 s.
+                time.sleep(3.0)
+                continue  # Re-check has_qt_config on the next iteration
 
             logger.debug(
-                "Re-enum attempt %d: device found but QT config not detected",
+                "Re-enum attempt %d: device present, QT config not yet detected "
+                "(WinUSB still binding — will retry)",
                 attempt,
             )
 
@@ -325,17 +345,27 @@ class USBEndpoint:
         if not self._dev:
             return False
 
-        # ── Step 1: Activate QT AV configuration ────────────────────────
-        # Configuration 5 MUST be set active before the Valeria interface
-        # (SubClass 0x2A) is enumerable and claimable.  Searching for the
-        # interface before set_configuration() means pyusb only sees the
-        # default config's interfaces and finds nothing.
-        try:
-            self._dev.set_configuration(QT_CONFIG_VALUE)
-            logger.debug("Set USB configuration %d (QT AV mode)", QT_CONFIG_VALUE)
-        except Exception as e:
+        # ── Step 1: Activate QT AV configuration (only if not already active) ──
+        # On Windows/WinUSB, calling set_configuration() when QT config is
+        # already active causes WinUSB to re-initialize the driver binding for
+        # the interface. This breaks any existing WinUSB binding and causes
+        # claim_interface() to fail with [Errno 2] Entity not found, because
+        # the re-binding has not completed by the time we try to claim.
+        # It also resets the iPhone's internal Valeria state machine — after
+        # the config reset the iPhone no longer sends PING, so the protocol
+        # loop waits forever and eventually gets a pipe error.
+        if not self.has_qt_config():
+            try:
+                self._dev.set_configuration(QT_CONFIG_VALUE)
+                logger.debug("Set USB configuration %d (QT AV mode)", QT_CONFIG_VALUE)
+            except Exception as e:
+                logger.debug(
+                    "set_configuration(%d): %s (may already be set)", QT_CONFIG_VALUE, e
+                )
+        else:
             logger.debug(
-                "set_configuration(%d): %s (may already be set)", QT_CONFIG_VALUE, e
+                "QT AV configuration already active — skipping set_configuration() "
+                "to preserve iPhone Valeria state and WinUSB driver binding"
             )
 
         # ── Step 2: Find the AV interface ───────────────────────────────
