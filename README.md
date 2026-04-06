@@ -1,4 +1,4 @@
-# IMIRROR4FREE 🪞
+# IMIRROR4FREE <img src="assets/icon.png" width="32" alt="iMirror4Free">
 
 **The definitive free iPhone USB screen mirroring tool for Windows.**
 
@@ -230,4 +230,4 @@ Built on the shoulders of:
 
 ---
 
-**IMIRROR4FREE** — because screen mirroring should be free. 🪞
+**IMIRROR4FREE** — because screen mirroring should be free. <img src="assets/icon.png" width="20" alt="iMirror4Free">
