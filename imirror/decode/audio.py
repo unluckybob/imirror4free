@@ -29,7 +29,7 @@ class AudioPlayer:
     succeed silently so the rest of the app works without audio.
     """
 
-    def __init__(self, sample_rate: int = 44100, channels: int = 2,
+    def __init__(self, sample_rate: int = 48000, channels: int = 2,
                  buffer_ms: int = 100):
         self._sample_rate = sample_rate
         self._channels = channels
@@ -39,6 +39,7 @@ class AudioPlayer:
         self._lock = threading.Lock()
         self._buffer = bytearray()
         self._sd_available = False
+        self._volume: float = 1.0
 
         # Check if sounddevice is available
         try:
@@ -165,6 +166,9 @@ class AudioPlayer:
 
         try:
             audio_array = np.frombuffer(chunk, dtype=np.float32).reshape(-1, self._channels)
+            # Apply volume scaling
+            if self._volume < 1.0:
+                audio_array = audio_array * self._volume
             outdata[:] = audio_array[:frames]
         except (ValueError, IndexError):
             outdata[:] = 0

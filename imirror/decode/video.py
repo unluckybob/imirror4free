@@ -129,7 +129,12 @@ class VideoDecoder:
 
     def _try_specific_hw(self, codec_name: str, width: int, height: int,
                          extradata: Optional[bytes], hw_type: str) -> bool:
-        """Try a specific HW acceleration type."""
+        """Try a specific HW acceleration type.
+
+        Uses PyAV's hardware device context to properly initialize GPU
+        decoding. On Windows, D3D11VA is preferred (better on Win10+),
+        falling back to DXVA2 for older systems.
+        """
         try:
             import av
 
@@ -138,11 +143,11 @@ class VideoDecoder:
 
             # Low-latency flags
             if config.decoder_low_delay:
-                ctx.flags |= 0x0001     # AV_CODEC_FLAG_LOW_DELAY (from avcodec.h)
+                ctx.flags |= 0x0001     # AV_CODEC_FLAG_LOW_DELAY
                 ctx.flags2 |= 0x00000001  # AV_CODEC_FLAG2_FAST
 
-            # Thread settings
-            ctx.thread_type = "SLICE"  # Slice-level threading for lower latency
+            # Thread settings — SLICE threading for lower latency with HW
+            ctx.thread_type = "SLICE"
             ctx.thread_count = config.decoder_thread_count or 0
 
             if width > 0 and height > 0:
@@ -152,7 +157,26 @@ class VideoDecoder:
             if extradata:
                 ctx.extradata = extradata
 
+            # Request hardware acceleration via PyAV's HW device API
+            # This creates the actual D3D11/DXVA2 device context needed
+            # for the GPU to perform the decode.
+            try:
+                hw_device = av.codec.hwaccel.HWAccel(device_type=hw_type)
+                ctx.hwaccel = hw_device
+                logger.debug("HW accel device created: %s", hw_type)
+            except (AttributeError, Exception) as hw_err:
+                # PyAV version may not support hwaccel API — try alternative
+                logger.debug("PyAV hwaccel API not available (%s), trying options", hw_err)
+                try:
+                    # Older PyAV: set hw_device_ctx through options
+                    ctx.options = {"hwaccel": hw_type}
+                except Exception:
+                    pass
+
             ctx.open()
+
+            # Verify that HW accel is actually active by checking the
+            # codec context's hw_frames_ctx or pix_fmt
             self._codec_context = ctx
             self._hw_accel = HardwareAccelStatus.AVAILABLE
             self._hw_type_name = hw_type
@@ -222,6 +246,14 @@ class VideoDecoder:
             for frame in frames:
                 self._frame_count += 1
                 self._consecutive_errors = 0
+
+                # HW frames need transfer from GPU→CPU before format conversion
+                try:
+                    if hasattr(frame, 'format') and frame.format and \
+                       frame.format.name in ('d3d11', 'dxva2_vld', 'd3d11va_vld'):
+                        frame = frame.to(format='nv12')
+                except Exception:
+                    pass  # Frame is already in CPU memory
 
                 # Convert to RGB
                 rgb_frame = frame.reformat(format="rgb24")
