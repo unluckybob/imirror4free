@@ -26,6 +26,15 @@ from imirror import __version__, __app_name__
 from imirror.config import config, CaptureBackendType
 
 
+def resource_path(relative_path: str) -> str:
+    """Get path to resource, works for dev and PyInstaller."""
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative_path)
+
+
 def setup_logging(verbose: bool = False, log_file: str = None) -> None:
     """Configure logging for the application."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -191,11 +200,17 @@ def main() -> int:
     # Launch the Qt GUI
     try:
         from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QIcon
         from imirror.gui.main_window import MainWindow
 
         app = QApplication(sys.argv)
         app.setApplicationName(__app_name__)
         app.setApplicationVersion(__version__)
+
+        # Set application icon
+        icon_path = resource_path(os.path.join("assets", "icon.ico"))
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
 
         window = MainWindow()
         window.show()

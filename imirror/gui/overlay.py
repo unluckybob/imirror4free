@@ -19,6 +19,15 @@ from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout
 from PyQt6.QtCore import Qt, QTimer
 
 
+# Apple system colors for status indication
+COLOR_GREEN = "#30D158"
+COLOR_ORANGE = "#FF9F0A"
+COLOR_RED = "#FF453A"
+COLOR_CRIMSON = "#B5342B"
+
+FONT_MONO = '"SF Mono", "Cascadia Code", "Consolas", monospace'
+
+
 class FPSOverlay(QWidget):
     """Semi-transparent FPS overlay displayed on top of the renderer."""
 
@@ -31,34 +40,36 @@ class FPSOverlay(QWidget):
         self.setStyleSheet("background: transparent;")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(14, 14, 14, 14)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self._fps_label = QLabel("-- FPS")
         self._fps_label.setObjectName("fpsLabel")
-        self._fps_label.setStyleSheet(self._fps_style("#00FF88"))
+        self._fps_label.setStyleSheet(self._fps_style(COLOR_GREEN))
         layout.addWidget(self._fps_label)
 
         self._info_label = QLabel("")
         self._info_label.setObjectName("infoLabel")
-        self._info_label.setStyleSheet("""
-            font-size: 10px;
-            font-family: "Cascadia Code", "Consolas", monospace;
-            color: #AAAAAA;
-            background-color: rgba(0, 0, 0, 150);
-            padding: 6px 10px;
-            border-radius: 4px;
+        self._info_label.setStyleSheet(f"""
+            font-size: 11px;
+            font-family: {FONT_MONO};
+            color: #8E8E93;
+            background-color: rgba(0, 0, 0, 180);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 8px 12px;
+            border-radius: 10px;
         """)
         layout.addWidget(self._info_label)
 
         self._recording_label = QLabel("")
-        self._recording_label.setStyleSheet("""
-            font-size: 11px;
-            font-family: "Cascadia Code", "Consolas", monospace;
-            color: #FF4444;
-            background-color: rgba(60, 0, 0, 200);
-            padding: 4px 10px;
-            border-radius: 4px;
+        self._recording_label.setStyleSheet(f"""
+            font-size: 12px;
+            font-family: {FONT_MONO};
+            color: #FFFFFF;
+            background-color: rgba(181, 52, 43, 220);
+            border: 1px solid rgba(181, 52, 43, 160);
+            padding: 6px 12px;
+            border-radius: 10px;
             font-weight: bold;
         """)
         self._recording_label.setVisible(False)
@@ -82,12 +93,13 @@ class FPSOverlay(QWidget):
     @staticmethod
     def _fps_style(color: str) -> str:
         return f"""
-            font-size: 13px;
-            font-family: "Cascadia Code", "Consolas", monospace;
+            font-size: 14px;
+            font-family: {FONT_MONO};
             color: {color};
             background-color: rgba(0, 0, 0, 200);
-            padding: 6px 10px;
-            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 8px 12px;
+            border-radius: 10px;
             font-weight: bold;
         """
 
@@ -121,13 +133,13 @@ class FPSOverlay(QWidget):
         """Refresh the overlay text."""
         fps = self._capture_fps
 
-        # Color code FPS
+        # Color code FPS using Apple system colors
         if fps >= 25:
-            color = "#00FF88"   # Green — great
+            color = COLOR_GREEN    # Green — great
         elif fps >= 10:
-            color = "#FFAA00"   # Orange — okay
+            color = COLOR_ORANGE   # Orange — okay
         else:
-            color = "#FF4444"   # Red — low
+            color = COLOR_RED      # Red — low
 
         self._fps_label.setStyleSheet(self._fps_style(color))
         self._fps_label.setText(f"{fps:.1f} FPS")
