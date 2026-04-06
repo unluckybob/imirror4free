@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
     status_update = pyqtSignal(str)
     error_signal = pyqtSignal(str, str)  # title, message
     recording_state_changed = pyqtSignal(bool)  # is_recording
+    disconnected_signal = pyqtSignal()  # stream ended / device unplugged
 
     def __init__(self):
         super().__init__()
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
         self.status_update.connect(self._on_status_update)
         self.error_signal.connect(self._on_error)
         self.recording_state_changed.connect(self._on_recording_state_changed)
+        self.disconnected_signal.connect(self._on_disconnected)
 
         # Timers
         self._stats_timer = QTimer(self)
@@ -486,13 +488,21 @@ class MainWindow(QMainWindow):
 
             def on_frame(frame):
                 if frame.pixels is not None:
+                    # Wire audio player for volume control on first frame
+                    if self._audio_player is None and capture.audio_player:
+                        self._audio_player = capture.audio_player
                     self._current_frame = frame.pixels
                     self.frame_ready.emit(frame.pixels)
 
             capture.on_frame(on_frame)
-            capture.start(udid)
+            capture.on_raw_h264(self._feed_raw_h264_to_recorder)
+            capture.on_raw_audio(self._feed_audio_to_recorder)
+            capture.on_stream_stopped(self._on_stream_ended)
 
-            self.status_update.emit("Valeria stream active")
+            if not capture.start(udid):
+                raise RuntimeError(capture._init_error or "Valeria stream failed to start")
+
+            self.status_update.emit("Valeria stream active — receiving from iPhone")
 
         except Exception as e:
             logger.warning("Valeria capture failed: %s — falling back to screenshot", e)
@@ -522,6 +532,48 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error("Screenshot capture failed: %s", e)
             raise
+
+    def _on_stream_ended(self) -> None:
+        """Called from valeria stream thread when stream stops — emit signal for UI thread."""
+        self._is_connected = False
+        self._capture_backend = None
+        self.disconnected_signal.emit()
+
+    def _on_disconnected(self) -> None:
+        """Reset UI after device disconnects or stream ends (runs on UI thread via signal)."""
+        logger.info("Device disconnected — resetting UI")
+        self._stack.setCurrentIndex(0)  # Back to waiting page
+        self._btn_screenshot.setEnabled(False)
+        self._btn_record.setEnabled(False)
+        self._action_screenshot.setEnabled(False)
+        self._action_record.setEnabled(False)
+        self._fps_status_label.setText("")
+        self._waiting_status.setText("Disconnected — reconnect your iPhone")
+        if self._is_recording:
+            self._stop_recording()
+        self._audio_player = None
+        self.status_update.emit("Disconnected — plug in your iPhone")
+
+    def _feed_raw_h264_to_recorder(self, h264_data: bytes, is_keyframe: bool,
+                                    timestamp_ns: int = 0) -> None:
+        """Feed raw H.264 data to the recorder (zero re-encode recording)."""
+        if not (self._recorder and self._recorder.is_recording):
+            return
+        # Set video format params from capture backend on first keyframe
+        if is_keyframe and self._capture_backend and not getattr(self, '_recording_fmt_set', False):
+            fmt = getattr(self._capture_backend, 'video_format', {})
+            w, h = fmt.get('width', 0), fmt.get('height', 0)
+            extradata = getattr(getattr(self._capture_backend, '_session', None),
+                                'get_decoder_extradata', lambda: None)()
+            if w and h:
+                self._recorder.set_video_format(w, h, extradata)
+            self._recording_fmt_set = True
+        self._recorder.feed_video(h264_data, is_keyframe, timestamp_ns)
+
+    def _feed_audio_to_recorder(self, pcm_data: bytes) -> None:
+        """Feed PCM audio data to the recorder."""
+        if self._recorder and self._recorder.is_recording:
+            self._recorder.feed_audio(pcm_data)
 
     # ─── Frame Rendering ────────────────────────────────────────────
 
@@ -567,6 +619,7 @@ class MainWindow(QMainWindow):
 
             if self._recorder.start():
                 self._is_recording = True
+                self._recording_fmt_set = False  # Reset so format is set on next keyframe
                 self._btn_record.setText("⏹ Stop")
                 self._action_record.setText("⏹ Stop Recording")
                 self._recording_label.setText("⏺ REC")

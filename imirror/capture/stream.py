@@ -95,6 +95,11 @@ class ValeriaStreamCapture(CaptureBackend):
         self._error_type: str = StreamError.GENERIC
         self._pending_need: bool = False
 
+        # External callbacks for recording and lifecycle events
+        self._on_raw_h264 = None       # Callable[[bytes, bool, int], None]
+        self._on_raw_audio = None      # Callable[[bytes], None]
+        self._on_stream_stopped = None # Callable[[], None]
+
     @property
     def name(self) -> str:
         return "Valeria Stream (H.264)"
@@ -107,6 +112,37 @@ class ValeriaStreamCapture(CaptureBackend):
     def error_type(self) -> str:
         """The type of the last error (for GUI to show appropriate actions)."""
         return self._error_type
+
+    @property
+    def audio_player(self):
+        """The AudioPlayer instance (for volume control), or None if not started."""
+        return self._audio
+
+    @property
+    def video_format(self) -> dict:
+        """Current video format info from the session (width, height, has_sps, has_pps)."""
+        if self._session:
+            return self._session.video_format
+        return {}
+
+    def on_raw_h264(self, callback) -> None:
+        """Register callback for raw H.264 frames (before decode) — used for recording.
+        Signature: callback(h264_data: bytes, is_keyframe: bool, timestamp_ns: int)
+        """
+        self._on_raw_h264 = callback
+
+    def on_raw_audio(self, callback) -> None:
+        """Register callback for raw PCM audio data — used for recording.
+        Signature: callback(pcm_data: bytes)
+        """
+        self._on_raw_audio = callback
+
+    def on_stream_stopped(self, callback) -> None:
+        """Register callback fired when the stream thread exits (disconnect/error).
+        Signature: callback()
+        Called from the stream thread — use Qt signals for UI updates.
+        """
+        self._on_stream_stopped = callback
 
     def is_available(self) -> bool:
         """Check if raw USB access is available for Valeria streaming.
@@ -294,6 +330,12 @@ class ValeriaStreamCapture(CaptureBackend):
             self._running = False
             self._handshake_done.set()  # Unblock start() if still waiting
             self._cleanup()
+            # Notify main_window that stream has ended (for reconnection support)
+            if self._on_stream_stopped:
+                try:
+                    self._on_stream_stopped()
+                except Exception:
+                    pass
 
     def _init_usb(self) -> bool:
         """Initialize USB connection and claim AV endpoints.
@@ -648,6 +690,13 @@ class ValeriaStreamCapture(CaptureBackend):
         if not self._decoder or not self._running:
             return
 
+        # Fire raw H.264 callback BEFORE decode (for recording — zero re-encode)
+        if self._on_raw_h264:
+            try:
+                self._on_raw_h264(video_frame.data, video_frame.is_keyframe, video_frame.timestamp_ns)
+            except Exception:
+                pass
+
         rgb_array = self._decoder.decode_frame(video_frame.data)
         if rgb_array is None:
             return
@@ -675,6 +724,12 @@ class ValeriaStreamCapture(CaptureBackend):
         """Handle an audio sample from ValeriaSession — feed to speaker."""
         if self._audio and self._running:
             self._audio.feed(audio_sample.data)
+        # Fire raw audio callback (for recording)
+        if self._on_raw_audio and self._running:
+            try:
+                self._on_raw_audio(audio_sample.data)
+            except Exception:
+                pass
 
     # ─── Error handling ─────────────────────────────────────────────
 
