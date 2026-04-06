@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         self._is_recording = False
         self._consecutive_failures = 0
         self._last_capture_failure = 0.0
+        self._driver_installed_this_session = False  # Guards against stale diagnostics re-showing the button
 
         # Build UI
         self._build_menu_bar()
@@ -740,6 +741,9 @@ class MainWindow(QMainWindow):
                 self._waiting_status.setText("Driver installed — please replug your iPhone")
                 self._btn_install_driver.setVisible(False)
                 self._driver_status_label.setText("Driver installed ✓ — replug your iPhone to activate")
+                self._driver_installed_this_session = True   # Suppress stale-diagnostics re-show
+                self._consecutive_failures = 0               # Reset cooldown so iPhone is detected quickly
+                self._last_capture_failure = 0.0
             else:
                 QMessageBox.warning(self, "Driver Installation Failed",
                                    f"[FAIL] {result.message}")
@@ -774,6 +778,8 @@ class MainWindow(QMainWindow):
 
     def _update_driver_ui_from_diagnostics(self) -> None:
         """Read startup diagnostics and show driver install button if needed."""
+        if self._driver_installed_this_session:
+            return  # Driver was installed this session — don't re-show button from stale cache
         if not self._device_manager:
             return
         diag = self._device_manager.diagnostics
