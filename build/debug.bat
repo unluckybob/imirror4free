@@ -4,7 +4,7 @@ echo ========================================
 echo  IMIRROR4FREE - Debug Mode
 echo ========================================
 echo.
-python\python.exe run.py
+python\python.exe -m imirror.main
 echo.
 echo ========================================
 echo  App exited. Check output above for errors.
