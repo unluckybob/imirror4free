@@ -38,6 +38,7 @@ import os
 import platform
 import re
 import shutil
+import sys
 import subprocess
 import sys
 import tempfile
@@ -642,6 +643,55 @@ def _find_signtool() -> Optional[str]:
 # ─── Driver installation ────────────────────────────────────────────
 
 
+def _ensure_libusb0_dll() -> None:
+    """Copy libusb0.dll to System32 if it is not already there.
+
+    pnputil installs libusb0.sys (kernel driver) but NOT libusb0.dll
+    (the user-mode library that PyUSB loads via ctypes).  On machines where
+    AnyMiro or the libusb-win32 installer has never run, libusb0.dll will be
+    absent and PyUSB silently finds no backend.
+
+    We look for libusb0.dll next to the running .exe (bundled by PyInstaller
+    via --add-binary) and copy it to System32 when missing.
+    """
+    if not is_windows():
+        return
+
+    import ctypes
+    sys32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    dest = os.path.join(sys32, "libusb0.dll")
+
+    if os.path.exists(dest):
+        logger.debug("libusb0.dll already present in System32 — no copy needed")
+        return
+
+    # Find it next to our executable (PyInstaller bundle) or in the script dir
+    candidates = []
+    if getattr(sys, "frozen", False):               # PyInstaller bundle
+        candidates.append(os.path.join(sys._MEIPASS, "libusb0.dll"))
+        candidates.append(os.path.join(os.path.dirname(sys.executable), "libusb0.dll"))
+    candidates.append(os.path.join(os.path.dirname(__file__), "libusb0.dll"))
+
+    src = next((p for p in candidates if os.path.exists(p)), None)
+    if src is None:
+        logger.warning(
+            "libusb0.dll not found in bundle — PyUSB may fail on this machine. "
+            "Install libusb-win32 manually if device is not detected."
+        )
+        return
+
+    try:
+        shutil.copy2(src, dest)
+        logger.info("Copied libusb0.dll to %s", dest)
+    except PermissionError:
+        logger.warning(
+            "Could not copy libusb0.dll to System32 (permission denied). "
+            "Run as Administrator to fix USB detection on this machine."
+        )
+    except Exception as exc:
+        logger.warning("libusb0.dll copy failed: %s", exc)
+
+
 def install_driver(inf_path: Optional[str] = None, pid: Optional[int] = None) -> DriverInstallResult:
     """Install the libusb-win32 mirror driver.
 
@@ -694,7 +744,14 @@ def install_driver(inf_path: Optional[str] = None, pid: Optional[int] = None) ->
     else:
         logger.info("Driver unsigned — will attempt installation anyway")
 
-    # Step 5: Install via pnputil
+    # Step 5: Ensure libusb0.dll (user-mode component) is in System32.
+    # pnputil only installs the kernel driver (libusb0.sys).
+    # PyUSB's libusb0 backend also needs libusb0.dll in a DLL search path.
+    # On machines without AnyMiro / libusb-win32 pre-installed it will be absent.
+    # We copy it from the app bundle (if present) so fresh machines work too.
+    _ensure_libusb0_dll()
+
+    # Step 6: Install via pnputil
     return _install_via_pnputil(inf_path)
 
 
