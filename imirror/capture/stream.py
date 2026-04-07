@@ -522,6 +522,8 @@ class ValeriaStreamCapture(CaptureBackend):
 
         _ping_wait_start = time.monotonic()
         _ping_retry_sent = False
+        _ping_complete_time: Optional[float] = None   # when PING handshake finished
+        _cwpa_timeout = 30.0  # seconds to wait for CWPA after PING
 
         while self._running:
             # Retry PING once if no response after 5 s (rare, but guards against
@@ -536,6 +538,26 @@ class ValeriaStreamCapture(CaptureBackend):
                     _ping_retry_sent = True
                 except Exception as _e:
                     logger.warning("PING retry send failed: %s", _e)
+            # ── CWPA watchdog ────────────────────────────────────────
+            # If PING completed but iPhone sent no CWPA within 30 s, resend PING
+            # to restart the handshake.  This handles the case where the first PING
+            # was received but the CWPA window was missed (e.g. libusb0 discard).
+            if (not self._streaming_started
+                    and _ping_complete_time is not None
+                    and time.monotonic() - _ping_complete_time > _cwpa_timeout):
+                logger.warning(
+                    "No CWPA from iPhone after %.0fs since PING — resending PING",
+                    time.monotonic() - _ping_complete_time,
+                )
+                _ping_complete_time = None
+                _ping_retry_sent = False
+                _ping_wait_start = time.monotonic()
+                try:
+                    self._endpoint.write(build_ping())
+                    logger.info("PING resent (CWPA watchdog)")
+                except Exception as _we:
+                    logger.warning("CWPA watchdog PING resend failed: %s", _we)
+
             # ── Read from USB ───────────────────────────────────────
             try:
                 # During handshake (before streaming starts) use a small read
@@ -558,7 +580,10 @@ class ValeriaStreamCapture(CaptureBackend):
                 # During streaming we go back to 100ms for responsive health checks.
                 if not self._streaming_started:
                     _hs_read_size = 4096
-                    _hs_timeout = 5000
+                    # Pre-PING: 5 s window to catch the 16-byte PING response.
+                    # Post-PING (waiting for CWPA): 15 s so CWPA is not discarded
+                    # at the timeout boundary by libusb0-win32.
+                    _hs_timeout = 5000 if not self._handshake_done.is_set() else 15000
                 else:
                     _hs_read_size = read_size
                     _hs_timeout = read_timeout
@@ -582,14 +607,44 @@ class ValeriaStreamCapture(CaptureBackend):
                 # there may still be complete packets waiting in read_buffer.
             except usb.core.USBError as e:
                 if self._running:
-                    logger.error("USB read error: %s — attempting recovery", e)
-                    # Try to recover from transient USB errors
-                    if self._attempt_usb_recovery():
-                        read_buffer.clear()
-                        last_data_time = time.monotonic()
-                        continue
-                    self._signal_error(f"USB error: {e}", StreamError.CONNECTION_LOST)
-                return
+                    # libusb0-win32 raises USBError (not USBTimeoutError) for
+                    # bulk read timeouts.  Detect by inspecting the error string
+                    # so we don't trigger recovery on every normal 5/15-second
+                    # handshake timeout — doing so corrupts the libusb0 handle
+                    # and causes the "invalid interface -1" cascade seen in logs.
+                    if 'timeout' in str(e).lower():
+                        # Treat identically to USBTimeoutError — non-fatal.
+                        if self._streaming_started:
+                            silence = time.monotonic() - last_data_time
+                            if silence > health_timeout:
+                                logger.warning(
+                                    "No data from iPhone for %.0fs — connection lost",
+                                    silence,
+                                )
+                                self._signal_error(
+                                    "Connection lost — no data from iPhone",
+                                    StreamError.CONNECTION_LOST,
+                                )
+                                return
+                        # During handshake: fall through to packet parse / CWPA watchdog
+                    else:
+                        logger.error("USB read error: %s — attempting recovery", e)
+                        # Try to recover from transient USB errors
+                        if self._attempt_usb_recovery():
+                            read_buffer.clear()
+                            last_data_time = time.monotonic()
+                            # Reset PING state so we restart the handshake cleanly
+                            _ping_retry_sent = False
+                            _ping_complete_time = None
+                            _ping_wait_start = time.monotonic()
+                            try:
+                                self._endpoint.write(build_ping())
+                                logger.info("Resent PING after USB recovery")
+                            except Exception as _rpe:
+                                logger.warning("PING resend after recovery failed: %s", _rpe)
+                            continue
+                        self._signal_error(f"USB error: {e}", StreamError.CONNECTION_LOST)
+                        return
 
             # ── Parse complete packets ──────────────────────────────
             while len(read_buffer) >= 4:
@@ -641,6 +696,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 if packet.packet_type == PacketType.PING:
                     logger.info("PING handshake complete")
                     self._handshake_done.set()
+                    _ping_complete_time = time.monotonic()  # start CWPA watchdog
 
                 elif packet.packet_type == PacketType.SYNC:
                     if packet.subtype == Magic.CWPA:
