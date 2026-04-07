@@ -136,8 +136,11 @@ def build():
         "--collect-all=pymobiledevice3",
         "--collect-all=OpenGL",
 
-        # *** FIX: libusb_package contains libusb-1.0.dll — it's a BINARY, not data ***
-        "--collect-binaries=libusb_package",
+        # libusb_package bundles libusb-1.0.dll (libusb1 backend).
+        # We use usb.backend.libusb0 which requires libusb0.dll (libusb-win32).
+        # libusb0.dll is NOT in libusb_package — we collect it separately below.
+        # (On the developer machine it is in System32, put there by AnyMiro / libusb-win32 installer.)
+        "--collect-binaries=libusb_package",   # still needed: pulls in hidden cffi deps
 
         # *** FIX: sounddevice bundles portaudio DLL — collect binaries too ***
         "--collect-binaries=sounddevice",
@@ -196,8 +199,10 @@ def build():
         "--exclude-module=tkinter",
         "--exclude-module=_tkinter",
 
-        # -- Strip debug symbols for smaller binary --
-        "--strip",
+        # NOTE: --strip is intentionally OMITTED.
+        # On Windows, strip corrupts PE binaries (it's a Unix ELF tool).
+        # PyInstaller docs explicitly warn against --strip on Windows.
+        # Use UPX or MSVC release optimisations instead if you need smaller binaries.
 
         # -- Output paths --
         f"--distpath={os.path.join(PROJECT_ROOT, 'dist')}",
@@ -224,6 +229,43 @@ def build():
     print(f"  PyQt6       : Selective (trimmed — no WebEngine/3D/Multimedia)")
     print(f"  libusb      : --collect-binaries (DLL bundled)")
     print()
+
+    # ── Bundle libusb0.dll (libusb-win32 user-mode component) ─────────────────
+    # usb.backend.libusb0 searches for libusb0.dll by name.  If it is not in
+    # the bundle, PyUSB will silently find no backend on machines that don't
+    # have AnyMiro (or libusb-win32) installed and will never enumerate the
+    # iPhone.  We copy it from System32 (where AnyMiro/libusb-win32 installs
+    # it on the DEVELOPER machine) into the bundle root so PyUSB finds it
+    # next to the .exe on the END-USER machine too.
+    import shutil
+    import glob as _glob
+
+    _libusb0_dll = None
+    _search_paths = [
+        os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "libusb0.dll"),
+        os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "SysWOW64", "libusb0.dll"),
+    ]
+    # Also check any libusb-win32 installation directories
+    for _pat in [r"C:\Program Files*\libusb-win32\bin\x64\libusb0.dll",
+                 r"C:\Program Files*\libusb-win32\bin\libusb0.dll"]:
+        _search_paths.extend(_glob.glob(_pat))
+
+    for _p in _search_paths:
+        if os.path.exists(_p):
+            _libusb0_dll = _p
+            break
+
+    if _libusb0_dll:
+        print(f"  libusb0.dll : Found at {_libusb0_dll} — will be bundled")
+        # Pass it to PyInstaller via --add-binary
+        args.append(f"--add-binary={_libusb0_dll}{os.pathsep}.")
+    else:
+        print("  libusb0.dll : WARNING — NOT FOUND in System32 or SysWOW64.")
+        print("    The built app will ONLY work on machines where libusb-win32")
+        print("    is already installed (e.g. machines that have AnyMiro).")
+        print("    To fix: install libusb-win32 on the BUILD machine first,")
+        print("    or place libusb0.dll in C:\\Windows\\System32 manually.")
+    # ────────────────────────────────────────────────────────────────────────
 
     PyInstaller.__main__.run(args)
 
