@@ -1,24 +1,27 @@
 """
-WinUSB Driver Auto-Installer for iPhone AV Interface.
+libusb-win32 (libusb0) Driver Auto-Installer for iPhone AV Interface.
 
-Automates what Zadig does manually — installs the WinUSB driver for the
-iPhone so libusb can access it for Valeria protocol communication.
+Installs the libusb-win32 driver for the iPhone so PyUSB can access it
+for Valeria protocol communication — exactly what AnyMiro does.
 
-This installs a WinUSB "mirror driver" on first run.
+This installs a libusb-win32 "mirror driver" on first run.
 After installation, IMIRROR4FREE can send the USB control transfer to enable
 QT Configuration 5 (Valeria AV streaming) and communicate with the
 H.264 video + PCM audio endpoints.
 
 Architecture:
     1. Detect iPhone PID on USB bus (pyusb or Windows WMI fallback)
-    2. Generate a WinUSB INF file targeting the specific iPhone
+    2. Generate a libusb-win32 INF file targeting the specific iPhone
     3. Create self-signed certificate for driver signing
     4. Install via pnputil (with UAC elevation if needed)
-    5. User unplugs and replugs iPhone → WinUSB loads
-    6. libusb can now access the device → Valeria streaming works
+    5. User unplugs and replugs iPhone → libusb0 loads
+    6. PyUSB (libusb0 backend) can now access the device → Valeria streaming works
+
+The device will appear in Device Manager under "LIBUSB-WIN32 DEVICES"
+with service property "libusb0" — identical to what AnyMiro sets up.
 
 Trade-off:
-    While our WinUSB driver is installed, Apple's original driver is replaced.
+    While our libusb-win32 driver is installed, Apple's original driver is replaced.
     iTunes/Apple Music won't detect the iPhone. We provide an uninstall method
     to restore the original Apple driver when the user wants.
 
@@ -26,6 +29,7 @@ Requirements:
     - Windows 10 or later
     - Administrator privileges (UAC prompt shown automatically)
     - iPhone connected via USB
+    - libusb0.inf in the Windows INF directory (installed by AnyMiro or libusb-win32)
 """
 
 import ctypes
@@ -164,17 +168,29 @@ def detect_iphone_pid() -> Optional[int]:
 
 
 def _detect_pid_pyusb() -> Optional[int]:
-    """Detect iPhone PID via pyusb (requires libusb backend)."""
+    """Detect iPhone PID via pyusb (uses libusb-win32 backend on Windows)."""
     try:
         import usb.core
+        from imirror.usb.endpoint import _find_libusb0_dll
 
         backend = None
         if is_windows():
+            # Try libusb-win32 (libusb0) first — this is what AnyMiro uses
+            dll_path = _find_libusb0_dll()
             try:
-                import libusb_package
-                backend = libusb_package.get_libusb1_backend()
-            except ImportError:
+                import usb.backend.libusb0 as _lb0
+                find_lib = (lambda x: dll_path) if dll_path else None
+                backend = _lb0.get_backend(find_library=find_lib)
+            except Exception:
                 pass
+
+            # Fallback to libusb1 (WinUSB)
+            if not backend:
+                try:
+                    import usb.backend.libusb1
+                    backend = usb.backend.libusb1.get_backend()
+                except Exception:
+                    pass
 
         if not backend:
             try:
@@ -267,15 +283,21 @@ def detect_iphone_hwids() -> list[str]:
 # ─── INF generation ─────────────────────────────────────────────────
 
 
-def generate_winusb_inf(
+def generate_libusb0_inf(
     pid: int,
     output_dir: Optional[str] = None,
 ) -> str:
-    """Generate a WinUSB INF file for the iPhone.
+    """Generate a libusb-win32 (libusb0) INF file for the iPhone.
 
-    Creates an INF that tells Windows to use the WinUSB driver for
+    Creates an INF that tells Windows to use the libusb-win32 driver for
     the specific iPhone model. This replaces Apple's driver and gives
-    libusb access for Valeria protocol communication.
+    PyUSB (libusb0 backend) access for Valeria protocol communication.
+
+    This is identical to what AnyMiro does — binding libusb0.sys to the
+    iPhone so it appears under "LIBUSB-WIN32 DEVICES" in Device Manager.
+
+    Requires libusb0.inf to already be present in the Windows INF directory,
+    which is the case when libusb-win32 or AnyMiro is installed.
 
     Args:
         pid: iPhone USB Product ID (e.g., 0x12A8).
@@ -289,20 +311,20 @@ def generate_winusb_inf(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    device_guid = "{" + str(uuid.uuid4()).upper() + "}"
-
     # Primary hardware ID — matches the specific iPhone model
     hw_id_specific = f"USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}"
 
-
     inf_content = f"""; ═══════════════════════════════════════════════════════════════
-; IMIRROR4FREE Mirror Driver — WinUSB for iPhone AV Streaming
+; IMIRROR4FREE Mirror Driver — libusb-win32 for iPhone AV Streaming
 ; ═══════════════════════════════════════════════════════════════
 ;
 ; This driver enables USB screen mirroring from iPhone to PC.
-; It replaces Apple's driver with WinUSB so that IMIRROR4FREE
-; can send the QuickTime AV configuration request and receive
-; H.264 video + PCM audio over USB bulk endpoints.
+; It replaces Apple's driver with libusb-win32 (libusb0) so that
+; IMIRROR4FREE can send the QuickTime AV configuration request and
+; receive H.264 video + PCM audio over USB bulk endpoints.
+;
+; This is the same approach used by AnyMiro.
+; The iPhone will appear under "LIBUSB-WIN32 DEVICES" in Device Manager.
 ;
 ; To restore Apple's original driver:
 ;   1. Open Device Manager
@@ -314,8 +336,8 @@ def generate_winusb_inf(
 
 [Version]
 Signature   = "$Windows NT$"
-Class       = USBDevice
-ClassGUID   = {{88BAE032-5A81-49f0-BC3D-A4FF138216D6}}
+Class       = LibUSBDevices
+ClassGUID   = {{EB781AAF-9C70-4523-A5DF-642A87ECA567}}
 Provider    = %ProviderName%
 CatalogFile = imirror_mirror.cat
 DriverVer   = 04/05/2026,2.0.0.0
@@ -326,29 +348,25 @@ DriverVer   = 04/05/2026,2.0.0.0
 %MfgName% = DeviceList,NTamd64,NTx86,NTarm64
 
 [DeviceList.NTamd64]
-%DeviceName% = USB_Install, {hw_id_specific}
+%DeviceName% = DriverInstall, {hw_id_specific}
 
 [DeviceList.NTx86]
-%DeviceName% = USB_Install, {hw_id_specific}
+%DeviceName% = DriverInstall, {hw_id_specific}
 
 [DeviceList.NTarm64]
-%DeviceName% = USB_Install, {hw_id_specific}
+%DeviceName% = DriverInstall, {hw_id_specific}
 
 ; ─── Installation ────────────────────────────────────────────
+; Requires libusb0.inf to be in the Windows INF directory.
+; This is installed automatically by libusb-win32 or AnyMiro.
 
-[USB_Install]
-Include = winusb.inf
-Needs   = WINUSB.NT
+[DriverInstall.NT]
+Include = libusb0.inf
+Needs   = LIBUSB0.NT
 
-[USB_Install.Services]
-Include = winusb.inf
-Needs   = WINUSB.NT.Services
-
-[USB_Install.HW]
-AddReg = Dev_AddReg
-
-[Dev_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{device_guid}"
+[DriverInstall.NT.Services]
+Include = libusb0.inf
+Needs   = LIBUSB0.NT.Services
 
 ; ─── Strings ─────────────────────────────────────────────────
 
@@ -362,10 +380,14 @@ DeviceName       = "iPhone Mirror Interface (IMIRROR4FREE)"
     with open(inf_path, "w", encoding="utf-8") as f:
         f.write(inf_content)
 
-    logger.info("Generated WinUSB INF at: %s", inf_path)
+    logger.info("Generated libusb-win32 INF at: %s", inf_path)
     logger.info("  Hardware ID: %s", hw_id_specific)
 
     return inf_path
+
+
+# Keep old name as alias for backward compatibility
+generate_winusb_inf = generate_libusb0_inf
 
 
 # ─── Certificate & signing ──────────────────────────────────────────
@@ -563,7 +585,7 @@ def install_driver(inf_path: Optional[str] = None, pid: Optional[int] = None) ->
     # Step 2: Generate INF
     if inf_path is None:
         try:
-            inf_path = generate_winusb_inf(pid)
+            inf_path = generate_libusb0_inf(pid)
         except Exception as e:
             return DriverInstallResult(False, f"Failed to generate driver files: {e}")
 
@@ -902,20 +924,30 @@ def check_driver_status() -> DriverStatus:
         status.installed = True
         status.oem_inf_name = oem_name
     else:
-        # Check if WinUSB is the current driver for the iPhone
-        status.installed = _is_winusb_active_for_iphone()
+        # Check if libusb0 (libusb-win32) is the current driver for the iPhone
+        status.installed = _is_libusb0_active_for_iphone()
 
-    # Check libusb accessibility
+    # Check libusb accessibility (using libusb0 backend on Windows)
     try:
         import usb.core
+        from imirror.usb.endpoint import _find_libusb0_dll
 
         backend = None
         if is_windows():
+            dll_path = _find_libusb0_dll()
             try:
-                import libusb_package
-                backend = libusb_package.get_libusb1_backend()
-            except ImportError:
+                import usb.backend.libusb0 as _lb0
+                find_lib = (lambda x: dll_path) if dll_path else None
+                backend = _lb0.get_backend(find_library=find_lib)
+            except Exception:
                 pass
+
+            if not backend:
+                try:
+                    import usb.backend.libusb1
+                    backend = usb.backend.libusb1.get_backend()
+                except Exception:
+                    pass
 
         if not backend:
             try:
@@ -953,8 +985,12 @@ def check_driver_status() -> DriverStatus:
     return status
 
 
-def _is_winusb_active_for_iphone() -> bool:
-    """Check if WinUSB is the active driver for the iPhone via Windows."""
+def _is_libusb0_active_for_iphone() -> bool:
+    """Check if libusb-win32 (libusb0) is the active driver for the iPhone.
+
+    Looks for Apple USB devices in Device Manager and checks if their
+    service is 'libusb0' — which is what AnyMiro installs.
+    """
     if not is_windows():
         return False
 
@@ -962,7 +998,7 @@ def _is_winusb_active_for_iphone() -> bool:
         result = subprocess.run(
             [
                 "powershell", "-NoProfile", "-Command",
-                "Get-PnpDevice -Class USB -Status OK | "
+                "Get-PnpDevice -Status OK | "
                 "Where-Object { $_.InstanceId -like '*VID_05AC*' } | "
                 "Get-PnpDeviceProperty -KeyName DEVPKEY_Device_Service | "
                 "Select-Object -ExpandProperty Data"
@@ -972,13 +1008,20 @@ def _is_winusb_active_for_iphone() -> bool:
         )
 
         for line in result.stdout.strip().split("\n"):
-            if "winusb" in line.strip().lower():
+            svc = line.strip().lower()
+            # Accept libusb0 (libusb-win32) or winusb (WinUSB) as valid
+            if svc in ("libusb0", "winusb") or svc.startswith("libusb"):
+                logger.debug("Active driver service for iPhone: %s", line.strip())
                 return True
 
     except Exception:
         pass
 
     return False
+
+
+# Keep old name as alias for backward compatibility
+_is_winusb_active_for_iphone = _is_libusb0_active_for_iphone
 
 
 # ─── Complete setup flow ────────────────────────────────────────────

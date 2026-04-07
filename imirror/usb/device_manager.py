@@ -3,11 +3,12 @@ Device Manager — Detects and manages connected iPhones via multiple methods.
 
 Detection strategy (tries in order):
 1. pymobiledevice3 via usbmuxd — works when Apple's driver is loaded (normal)
-2. pyusb via libusb — works when WinUSB is loaded (after driver install)
+2. pyusb via libusb-win32 — works when libusb0 is loaded (after driver install)
 
 This dual-detection approach ensures we can find the iPhone regardless of
-which USB driver is active, which is critical for the Phase 2 driver
-installation flow where we switch from Apple's driver to WinUSB.
+which USB driver is active. On Windows, we use the libusb-win32 (libusb0)
+backend — the same backend that AnyMiro uses. The device appears in Device
+Manager under "LIBUSB-WIN32 DEVICES" with service property "libusb0".
 
 Also integrates with the driver installer to provide driver status
 information to the GUI.
@@ -168,7 +169,7 @@ def run_startup_diagnostics() -> dict:
         # Only warn if no mirror driver is installed (usbmuxd fails when WinUSB is active)
         driver_status = results.get("driver_status")
         if driver_status and driver_status.installed:
-            logger.info("usbmuxd not reachable (expected — WinUSB mirror driver is active)")
+            logger.info("usbmuxd not reachable (expected — libusb-win32 mirror driver is active)")
         else:
             results["issues"].append(f"Cannot reach usbmuxd: {e}")
 
@@ -343,19 +344,31 @@ class DeviceManager:
         return found_udids
 
     def _check_via_pyusb(self) -> set[str]:
-        """Detect devices via pyusb/libusb (works with WinUSB driver)."""
+        """Detect devices via pyusb/libusb-win32 (works with libusb0 driver)."""
         found_udids = set()
 
         try:
             import usb.core
+            from imirror.usb.endpoint import _find_libusb0_dll
 
             backend = None
             if platform.system() == "Windows":
+                # Use libusb-win32 (libusb0) — matches AnyMiro's driver binding
+                dll_path = _find_libusb0_dll()
                 try:
-                    import libusb_package
-                    backend = libusb_package.get_libusb1_backend()
-                except ImportError:
+                    import usb.backend.libusb0 as _lb0
+                    find_lib = (lambda x: dll_path) if dll_path else None
+                    backend = _lb0.get_backend(find_library=find_lib)
+                except Exception:
                     pass
+
+                # Fallback to libusb1 if libusb0 not available
+                if not backend:
+                    try:
+                        import usb.backend.libusb1
+                        backend = usb.backend.libusb1.get_backend()
+                    except Exception:
+                        pass
 
             if not backend:
                 try:
@@ -385,7 +398,7 @@ class DeviceManager:
                         if device:
                             self._devices[pseudo_udid] = device
                             logger.info("Device connected: %s", device.display_name)
-                            logger.info("  Detected via: pyusb (WinUSB mode)")
+                            logger.info("  Detected via: pyusb (libusb-win32 mode)")
                             if self._on_device_connected:
                                 self._on_device_connected(device)
 

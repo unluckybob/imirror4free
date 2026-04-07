@@ -8,11 +8,17 @@ Handles:
 - Reading and writing raw bytes over bulk endpoints
 - Waiting for device re-enumeration after configuration changes
 
-This is the layer between the OS-level USB driver (WinUSB / libusb)
+This is the layer between the OS-level USB driver (libusb-win32 / libusb0)
 and the Valeria protocol layer in valeria.py.
+
+On Windows, we use libusb-win32 (libusb0) — the same driver backend that
+AnyMiro uses. The device must have libusb0.sys bound (shown in Device Manager
+as "LIBUSB-WIN32 DEVICES" → service: libusb0). This is installed automatically
+by AnyMiro or via the IMIRROR4FREE driver installer.
 """
 
 import logging
+import os
 import platform
 import struct
 import time
@@ -22,6 +28,39 @@ logger = logging.getLogger(__name__)
 
 # Apple USB vendor ID
 APPLE_VENDOR_ID = 0x05AC
+
+
+def _find_libusb0_dll() -> Optional[str]:
+    """Find libusb0.dll (libusb-win32) on Windows.
+
+    Checks AnyMiro's installation directory first (it bundles the DLL),
+    then common system paths where libusb-win32 installs itself.
+
+    Returns:
+        Absolute path to libusb0.dll, or None to let PyUSB search PATH.
+    """
+    if platform.system() != "Windows":
+        return None
+
+    candidates = [
+        # AnyMiro bundles libusb0.dll in its usbmuxd subfolder
+        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "AnyMiro", "usbmuxd", "libusb0.dll"),
+        os.path.join(os.environ.get("ProgramFiles", ""), "AnyMiro", "usbmuxd", "libusb0.dll"),
+        # System paths (libusb-win32 installs here)
+        os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "libusb0.dll"),
+        os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "SysWOW64", "libusb0.dll"),
+        # libusb-win32 default install
+        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "LibUSB-Win32", "bin", "x64", "libusb0.dll"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "LibUSB-Win32", "bin", "x86", "libusb0.dll"),
+    ]
+
+    for path in candidates:
+        if path and os.path.exists(path):
+            logger.debug("Found libusb0.dll at: %s", path)
+            return path
+
+    # Not found in known locations — let PyUSB search PATH automatically
+    return None
 
 # QT AV interface identifier (SubClass 0x2A = Valeria video/audio)
 QT_SUBCLASS = 0x2A
@@ -71,18 +110,49 @@ class USBEndpoint:
         return self._device_info
 
     def _init_backend(self) -> None:
-        """Initialize the libusb backend."""
+        """Initialize the libusb backend.
+
+        On Windows, prefers libusb-win32 (libusb0) which is what AnyMiro
+        installs. This backend communicates with devices whose service is
+        set to 'libusb0' (visible in Device Manager under LIBUSB-WIN32 DEVICES).
+
+        Falls back to libusb1 on non-Windows platforms.
+        """
         try:
             if platform.system() == "Windows":
+                # Primary: libusb-win32 (libusb0) — matches AnyMiro's driver
+                dll_path = _find_libusb0_dll()
                 try:
-                    import libusb_package
-                    self._backend = libusb_package.get_libusb1_backend()
+                    import usb.backend.libusb0 as _lb0
+                    find_lib = (lambda x: dll_path) if dll_path else None
+                    self._backend = _lb0.get_backend(find_library=find_lib)
                     if self._backend:
-                        logger.debug("Using libusb-package backend")
+                        logger.debug("Using libusb-win32 (libusb0) backend%s",
+                                     f" [{dll_path}]" if dll_path else "")
                         return
-                except ImportError:
-                    pass
+                    else:
+                        logger.debug("libusb0 backend returned None — libusb0.dll not found?")
+                except Exception as e:
+                    logger.debug("libusb0 backend init failed: %s", e)
 
+                # Fallback: libusb1 (WinUSB) — for devices bound to winusb.sys
+                try:
+                    import usb.backend.libusb1 as _lb1
+                    self._backend = _lb1.get_backend()
+                    if self._backend:
+                        logger.debug("Using libusb1 (WinUSB) backend as fallback")
+                        return
+                except Exception as e:
+                    logger.debug("libusb1 backend init failed: %s", e)
+
+                logger.warning(
+                    "No libusb backend found on Windows. "
+                    "Ensure libusb-win32 is installed (AnyMiro installs it automatically). "
+                    "Run the IMIRROR4FREE driver installer to set it up."
+                )
+                return
+
+            # Non-Windows: use libusb1
             import usb.backend.libusb1
             self._backend = usb.backend.libusb1.get_backend()
             if self._backend:
@@ -215,9 +285,10 @@ class USBEndpoint:
             # Provide actionable error message
             if "Access denied" in str(e) or "permission" in str(e).lower():
                 logger.error(
-                    "Access denied — the WinUSB mirror driver may not be installed. "
-                    "Install the mirror driver through the IMIRROR4FREE app, or manually "
-                    "via Zadig (https://zadig.akeo.ie/)."
+                    "Access denied — the libusb-win32 driver may not be installed. "
+                    "Install the mirror driver through the IMIRROR4FREE app. "
+                    "The device must appear under 'LIBUSB-WIN32 DEVICES' in Device Manager "
+                    "with service 'libusb0'."
                 )
             elif "Entity not found" in str(e) or "No such device" in str(e):
                 logger.error(
