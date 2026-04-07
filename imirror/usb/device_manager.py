@@ -166,7 +166,7 @@ def run_startup_diagnostics() -> dict:
         logger.info("usbmuxd reachable, found %d device(s) at startup", len(devices))
     except Exception as e:
         results["usbmuxd_reachable"] = False
-        # Only warn if no mirror driver is installed (usbmuxd fails when WinUSB is active)
+        # Only warn if no mirror driver is installed (usbmuxd fails when libusb-win32 is active)
         driver_status = results.get("driver_status")
         if driver_status and driver_status.installed:
             logger.info("usbmuxd not reachable (expected — libusb-win32 mirror driver is active)")
@@ -182,7 +182,7 @@ class DeviceManager:
 
     Detection methods:
     1. pymobiledevice3 (usbmuxd) — standard method, works with Apple's driver
-    2. pyusb (libusb) — fallback, works with WinUSB mirror driver
+    2. pyusb (libusb0) — fallback, works with libusb-win32 mirror driver
 
     The manager automatically uses whichever method finds a device.
     """
@@ -246,9 +246,9 @@ class DeviceManager:
         driver_status = self._diagnostics.get("driver_status")
         if driver_status:
             # Check both .installed (app installed it) AND .libusb_accessible
-            # (WinUSB active, e.g. installed via Zadig).  The old check only
+            # (libusb-win32 active, e.g. installed via Zadig).  The old check only
             # looked at .installed, so it logged "NOT INSTALLED" even when
-            # WinUSB was already active and pyusb could reach the device.
+            # libusb-win32 was already active and pyusb could reach the device.
             _drv_ok = driver_status.installed or driver_status.libusb_accessible
             logger.info("  Mirror driver: %s", "INSTALLED" if _drv_ok else "NOT INSTALLED")
             logger.info("  libusb accessible: %s", "YES" if driver_status.libusb_accessible else "NO")
@@ -294,7 +294,7 @@ class DeviceManager:
             usbmuxd_udids = self._check_via_usbmuxd()
             current_udids.update(usbmuxd_udids)
 
-        # Method 2: Try pyusb — fallback when WinUSB is active
+        # Method 2: Try pyusb — fallback when libusb-win32 is active
         if not current_udids:
             pyusb_udids = self._check_via_pyusb()
             current_udids.update(pyusb_udids)
@@ -362,7 +362,7 @@ class DeviceManager:
                 except Exception:
                     pass
 
-                # Fallback to libusb1 if libusb0 not available
+                # Fallback to libusb1 if libusb0 not available (non-Windows / last resort)
                 if not backend:
                     try:
                         import usb.backend.libusb1

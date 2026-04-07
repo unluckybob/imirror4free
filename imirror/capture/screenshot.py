@@ -3,14 +3,14 @@ Screenshot Capture Backend — Fallback for when Valeria streaming is unavailabl
 
 Captures the iPhone screen via pymobiledevice3's ScreenshotService, which uses
 Apple's native lockdown protocol over usbmuxd. This works when Apple's USB
-driver is loaded (before WinUSB mirror driver installation).
+driver is loaded (before libusb-win32 mirror driver installation).
 
 Limitations vs Valeria:
   - ~5-15 FPS (individual JPEG screenshots, not a stream)
   - No audio
   - Higher latency (~100-200ms per frame)
   - Requires Apple Mobile Device Service running
-  - Does NOT work when WinUSB mirror driver is active
+  - Does NOT work when libusb-win32 mirror driver is active
 
 This backend exists so the app can show *something* before the user
 installs the mirror driver, and as a diagnostic fallback.
@@ -84,7 +84,7 @@ class ScreenshotCapture(CaptureBackend):
         except Exception as e:
             logger.error(
                 "Screenshot backend cannot connect to iPhone: %s. "
-                "This usually means the WinUSB mirror driver is active — "
+                "This usually means the libusb-win32 mirror driver is active — "
                 "use the Valeria backend instead, or restore the original "
                 "Apple driver via Tools → Restore Original Driver.",
                 e,

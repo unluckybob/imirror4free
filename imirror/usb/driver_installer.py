@@ -68,7 +68,7 @@ class DriverInstallResult:
 
 
 class DriverStatus:
-    """Current status of the WinUSB mirror driver."""
+    """Current status of the libusb-win32 mirror driver."""
 
     def __init__(self):
         self.installed = False
@@ -92,8 +92,8 @@ class DriverStatus:
     def summary(self) -> str:
         # Show "Driver installed: [OK]" if libusb is accessible, regardless of
         # whether we have the OEM INF name saved.  The old logic showed [FAIL]
-        # when the user installed WinUSB via Zadig (no saved OEM name) or when
-        # _is_winusb_active_for_iphone() returned False due to PowerShell
+        # when the user installed libusb-win32 via Zadig (no saved OEM name) or when
+        # _is_libusb0_active_for_iphone() returned False due to PowerShell
         # service name differences — confusing because streaming was fine.
         driver_ok = self.installed or self.libusb_accessible
         lines = [
@@ -147,7 +147,7 @@ def detect_iphone_pid() -> Optional[int]:
     """Detect the connected iPhone's Product ID.
 
     Tries multiple methods:
-    1. pyusb with libusb (best, but may fail without WinUSB)
+    1. pyusb with libusb0 (best, but may fail without libusb-win32)
     2. Windows WMI/PowerShell (works regardless of driver)
 
     Returns:
@@ -184,7 +184,7 @@ def _detect_pid_pyusb() -> Optional[int]:
             except Exception:
                 pass
 
-            # Fallback to libusb1 (WinUSB)
+            # Fallback to libusb1 (non-Windows / last resort)
             if not backend:
                 try:
                     import usb.backend.libusb1
@@ -216,7 +216,7 @@ def _detect_pid_pyusb() -> Optional[int]:
 
 
 def _detect_pid_wmi() -> Optional[int]:
-    """Detect iPhone PID via Windows WMI (works without libusb/WinUSB)."""
+    """Detect iPhone PID via Windows WMI (works without libusb/libusb-win32)."""
     try:
         result = subprocess.run(
             [
@@ -494,7 +494,7 @@ def create_certificate_and_sign(inf_path: str) -> bool:
     certificate, add it to the Trusted Root and Trusted Publishers stores,
     then sign the catalog file.
 
-    This is the same approach Zadig uses for driver installation.
+    This is the same approach Zadig uses when installing libusb-win32.
 
     Args:
         inf_path: Path to the INF file.
@@ -643,7 +643,7 @@ def _find_signtool() -> Optional[str]:
 
 
 def install_driver(inf_path: Optional[str] = None, pid: Optional[int] = None) -> DriverInstallResult:
-    """Install the WinUSB mirror driver.
+    """Install the libusb-win32 mirror driver.
 
     This is the main installation entry point. It handles:
     1. Auto-detecting the iPhone if PID not provided
@@ -841,7 +841,7 @@ def _install_via_pnputil(inf_path: str) -> DriverInstallResult:
                     False,
                     "Driver installation failed — Windows rejected the unsigned driver. "
                     "You may need to temporarily disable Secure Boot in BIOS, or "
-                    "use Zadig (https://zadig.akeo.ie/) as a fallback."
+                    "use Zadig (https://zadig.akeo.ie/) selecting 'libusb-win32' as a fallback."
                 )
             return DriverInstallResult(False, f"Driver installation failed:\n{output}")
 

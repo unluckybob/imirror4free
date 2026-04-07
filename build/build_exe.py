@@ -64,6 +64,7 @@ def build():
         "--hidden-import=usb.core",
         "--hidden-import=usb.util",
         "--hidden-import=usb.backend",
+        "--hidden-import=usb.backend.libusb0",
         "--hidden-import=usb.backend.libusb1",
         "--hidden-import=libusb_package",
 

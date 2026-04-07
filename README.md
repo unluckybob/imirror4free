@@ -37,7 +37,7 @@ iPhone (USB)
     │         │
     │    USB Bulk Transfer (H.264 + LPCM Audio)
     │         │
-    ├─── WinUSB Driver (one-time install, replaces Apple's driver on Interface 2)
+    ├─── libusb-win32 Driver (one-time install, replaces Apple's driver on Interface 2)
     │         │
     │    IMIRROR4FREE
     │    ├── Valeria Protocol Handler (handshake, FEED/EAT!/NEED packets)
@@ -126,7 +126,7 @@ python -m imirror --backend valeria
 python -m imirror --backend screenshot
 
 # Driver management
-python -m imirror --install-driver     # Install WinUSB mirror driver
+python -m imirror --install-driver     # Install libusb-win32 mirror driver
 python -m imirror --uninstall-driver   # Restore Apple's original driver
 python -m imirror --check-driver       # Check driver status
 
@@ -149,7 +149,7 @@ imirror4free/
 │   ├── main.py                   # Entry point + CLI
 │   ├── config.py                 # All settings (persistent)
 │   ├── usb/
-│   │   ├── driver_installer.py   # WinUSB driver auto-installer
+│   │   ├── driver_installer.py   # libusb-win32 driver auto-installer
 │   │   ├── driver_check.py       # Driver diagnostics
 │   │   ├── device_manager.py     # iPhone detection (usbmuxd + pyusb)
 │   │   ├── endpoint.py           # USB endpoint I/O + QT mode switch
@@ -188,11 +188,11 @@ IMIRROR4FREE uses Apple's proprietary Valeria protocol — the same protocol Qui
 
 ### The Driver Problem (and Solution)
 
-On Windows, Apple's USB driver claims the iPhone's Valeria interface exclusively. The solution is to install a WinUSB driver specifically for the Valeria interface (Interface 2, SubClass 0x2A), while letting Apple's driver keep the other interfaces for normal iPhone functionality.
+On Windows, Apple's USB driver claims the iPhone's Valeria interface exclusively. The solution is to install a libusb-win32 driver specifically for the Valeria interface (Interface 2, SubClass 0x2A), while letting Apple's driver keep the other interfaces for normal iPhone functionality.
 
 Our `driver_installer.py` handles this automatically:
 - Detects the iPhone via WMI
-- Generates a WinUSB .inf targeting only the Valeria interface
+- Generates a libusb-win32 .inf targeting only the Valeria interface
 - Installs via Windows `pnputil`
 - Creates a backup for clean uninstall
 
