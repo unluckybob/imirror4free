@@ -412,15 +412,32 @@ class ValeriaStreamCapture(CaptureBackend):
         # Step 4: Claim the AV bulk endpoints
         _claimed = self._endpoint.claim_av_endpoints()
 
-        if not _claimed and self._endpoint.has_qt_config():
-            # QT config is active but claim still failed — this happens after a
-            # [Errno 32] Pipe error where WinUSB loses its driver binding even
-            # though the iPhone stays in Config 5.  Force a full QT re-enable:
-            # resend the control transfer so the iPhone re-enumerates cleanly,
-            # which gives WinUSB a completely fresh binding opportunity.
+        if not _claimed:
+            # Claim failed — force a full QT re-enable regardless of whether
+            # has_qt_config() is True or False.
+            #
+            # Two scenarios reach here:
+            #
+            # A) QT config active but claim returned Entity-not-found
+            #    ([Errno 2]).  This happens after a [Errno 32] Pipe error where
+            #    WinUSB loses its driver binding even though the iPhone stays in
+            #    Config 5.
+            #
+            # B) "Optimistic" first-ever connection: QT was enabled and the
+            #    device reappeared, but wait_for_reenumeration() hit its 15 s
+            #    patience limit before has_qt_config() turned True.  Windows
+            #    was still installing the WinUSB INF for Config 5's interfaces
+            #    for the very first time (10–15 s).  claim_av_endpoints() then
+            #    calls set_configuration(5) + 3 s wait, but that's not enough —
+            #    the AV interface is still not visible.  A second QT enable
+            #    after WinUSB has now fully bound the INF succeeds quickly.
+            #
+            # In both cases, resending the QT control transfer gives the iPhone
+            # a fresh re-enumeration, and WinUSB re-binds cleanly.
             logger.info(
-                "USB: Claim failed with QT config active — forcing full QT "
-                "re-enable to recover WinUSB binding..."
+                "USB: Claim failed (QT config %s) — forcing full QT "
+                "re-enable to recover WinUSB binding...",
+                "active" if self._endpoint.has_qt_config() else "not yet visible",
             )
             if self._endpoint.enable_qt_config():
                 if self._endpoint.wait_for_reenumeration(timeout=30.0):
