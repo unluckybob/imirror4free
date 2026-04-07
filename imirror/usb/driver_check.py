@@ -1,12 +1,16 @@
 """
-Windows USB Driver Diagnostic Utility — Enhanced for Phase 2.
+Windows USB Driver Diagnostic Utility.
 
 Provides comprehensive diagnostics for the USB driver situation:
-- pyusb/libusb availability
+- pyusb/libusb-win32 (libusb0) availability
 - Apple device detection
-- WinUSB driver status
+- libusb-win32 driver status
 - QT configuration state
-- Actionable guidance (now integrated with the automated driver installer)
+- Actionable guidance (integrated with the automated driver installer)
+
+On Windows, the iPhone must be bound to libusb0.sys (libusb-win32),
+visible in Device Manager under "LIBUSB-WIN32 DEVICES" with service "libusb0".
+This is installed automatically by AnyMiro or the IMIRROR4FREE driver installer.
 
 Usage:
     python -m imirror.usb.driver_check
@@ -30,7 +34,8 @@ class DriverCheckResult:
         self.device_accessible = False
         self.qt_config_active = False
         self.av_endpoints_found = False
-        self.winusb_driver_installed = False
+        self.libusb0_driver_installed = False
+        self.winusb_driver_installed = False  # kept for backward compat
         self.errors: list[str] = []
         self.warnings: list[str] = []
         self.device_info: str = ""
@@ -48,19 +53,21 @@ class DriverCheckResult:
 
     @property
     def needs_driver_install(self) -> bool:
-        """Whether the mirror driver needs to be installed."""
+        """Whether the libusb-win32 mirror driver needs to be installed."""
         return (
             self.platform == "Windows"
             and self.apple_device_found
             and not self.device_accessible
+            and not self.libusb0_driver_installed
             and not self.winusb_driver_installed
         )
 
     @property
     def needs_replug(self) -> bool:
         """Whether the user needs to unplug/replug their iPhone."""
+        driver_ok = self.libusb0_driver_installed or self.winusb_driver_installed
         return (
-            self.winusb_driver_installed
+            driver_ok
             and self.apple_device_found
             and not self.device_accessible
         )
@@ -79,7 +86,8 @@ class DriverCheckResult:
         lines.append(f"QT AV config active: {'[OK]' if self.qt_config_active else '[-] (will be enabled)'}")
 
         if self.platform == "Windows":
-            lines.append(f"WinUSB driver: {'[OK] Installed' if self.winusb_driver_installed else '[FAIL] Not installed'}")
+            drv_ok = self.libusb0_driver_installed or self.winusb_driver_installed
+            lines.append(f"libusb-win32 driver: {'[OK] Installed' if drv_ok else '[FAIL] Not installed'}")
 
         if self.device_info:
             lines.append(f"Device: {self.device_info}")
@@ -110,10 +118,10 @@ class DriverCheckResult:
             lines.append("    2. Connect your iPhone via USB")
             lines.append("    3. In Zadig: Options → List All Devices")
             lines.append("    4. Select your iPhone (Apple Mobile Device USB Device)")
-            lines.append("    5. Set target driver to WinUSB → Click 'Replace Driver'")
+            lines.append("    5. Set target driver to libusb-win32 → Click 'Replace Driver'")
             lines.append("")
-            lines.append("  Note: This replaces Apple's iPhone USB driver with WinUSB.")
-            lines.append("  iTunes/Apple Music won't detect the iPhone while WinUSB is active.")
+            lines.append("  Note: This replaces Apple's iPhone USB driver with libusb-win32.")
+            lines.append("  iTunes/Apple Music won't detect the iPhone while libusb-win32 is active.")
             lines.append("  You can restore the original driver through the app or Device Manager.")
 
         elif not self.pyusb_available:
@@ -121,7 +129,7 @@ class DriverCheckResult:
             lines.append("   Run: pip install pyusb")
         elif not self.libusb_backend:
             lines.append("[FAIL] RESULT: No libusb backend available")
-            lines.append("   Run: pip install libusb-package")
+            lines.append("   Install libusb-win32 via AnyMiro or IMIRROR4FREE driver installer.")
         elif not self.apple_device_found:
             lines.append("[FAIL] RESULT: No iPhone found on USB")
             lines.append("   Make sure your iPhone is connected via USB cable.")
@@ -156,25 +164,38 @@ def check_usb_drivers() -> DriverCheckResult:
         return result
 
     # Step 2: Check for libusb backend
+    # On Windows, prefer libusb-win32 (libusb0) — same as AnyMiro
     backend = None
     try:
-        import usb.backend.libusb1
-
-        # Try libusb-package first (Windows)
         if platform.system() == "Windows":
+            from imirror.usb.endpoint import _find_libusb0_dll
+            dll_path = _find_libusb0_dll()
             try:
-                import libusb_package
-                backend = libusb_package.get_libusb1_backend()
-            except ImportError:
+                import usb.backend.libusb0 as _lb0
+                find_lib = (lambda x: dll_path) if dll_path else None
+                backend = _lb0.get_backend(find_library=find_lib)
+            except Exception:
                 pass
 
-        if not backend:
+            # Fallback to libusb1 (WinUSB)
+            if not backend:
+                try:
+                    import usb.backend.libusb1
+                    backend = usb.backend.libusb1.get_backend()
+                except Exception:
+                    pass
+        else:
+            import usb.backend.libusb1
             backend = usb.backend.libusb1.get_backend()
 
         if backend:
             result.libusb_backend = True
         else:
-            result.errors.append("No libusb backend — run: pip install libusb-package")
+            result.errors.append(
+                "No libusb backend found. "
+                "Install libusb-win32 (via AnyMiro or IMIRROR4FREE driver installer) "
+                "or run: pip install libusb-package"
+            )
             return result
 
     except Exception as e:
@@ -199,10 +220,10 @@ def check_usb_drivers() -> DriverCheckResult:
                         result.apple_device_found = True
                         result.device_pid = pid
                         result.device_info = f"Apple Device (PID=0x{pid:04X}, detected via WMI)"
-                        # Device found via WMI but not pyusb → needs WinUSB
+                        # Device found via WMI but not pyusb → needs libusb-win32
                         result.warnings.append(
                             "iPhone found via Windows but not accessible to libusb — "
-                            "mirror driver installation needed"
+                            "libusb-win32 mirror driver installation needed"
                         )
                         return result
                 except ImportError:
@@ -233,13 +254,14 @@ def check_usb_drivers() -> DriverCheckResult:
         result.device_accessible = True
     except usb.core.USBError as e:
         result.warnings.append(f"Cannot read device descriptors: {e}")
-        result.warnings.append("This usually means WinUSB driver is needed")
+        result.warnings.append("This usually means libusb-win32 (libusb0) driver is needed")
 
-        # Check if WinUSB is installed but device needs replug
+        # Check if libusb-win32 is installed but device needs replug
         try:
             from imirror.usb.driver_installer import check_driver_status
             driver_status = check_driver_status()
-            result.winusb_driver_installed = driver_status.installed
+            result.libusb0_driver_installed = driver_status.installed
+            result.winusb_driver_installed = driver_status.installed  # compat
         except ImportError:
             pass
 
@@ -275,9 +297,10 @@ def check_usb_drivers() -> DriverCheckResult:
     except Exception as e:
         result.warnings.append(f"Error checking QT config: {e}")
 
-    # Mark WinUSB as installed if we got this far with device access
+    # Mark driver as installed if we got this far with device access
     if result.device_accessible:
-        result.winusb_driver_installed = True
+        result.libusb0_driver_installed = True
+        result.winusb_driver_installed = True  # compat
 
     return result
 
