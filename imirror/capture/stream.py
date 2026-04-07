@@ -504,31 +504,38 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.info("Valeria protocol loop starting...")
 
         # ── PING handshake ────────────────────────────────────────────
-        # Per the Valeria protocol reference and AnyMiro workflow:
-        # The iPhone sends PING first after the AV interface is claimed.
-        # The host must echo the exact 16 bytes back.
-        # ValeriaSession._handle_ping() handles the echo.
+        # AnyMiro USB pcap confirms the HOST initiates the PING exchange:
+        #   Frame 6644: host → iPhone  PING (10 00 00 00 67 6e 69 70 00 00 00 00 01 00 00 00)
+        #   Frame 7003: iPhone → host  PING (echo, ~1 s later)
+        #   Frame 7007: host → iPhone  PING (echo of echo via _handle_ping)
+        #   Frame 7008: iPhone → host  SYNC(cwpa)  ← streaming begins
         #
-        # NOTE: If the iPhone doesn't send PING within 10s, fall back to
-        # sending PING ourselves (some firmware versions may expect this).
-        logger.info("Waiting for iPhone PING...")
+        # We send one PING immediately on interface claim, then
+        # ValeriaSession._handle_ping() echoes every PING we receive —
+        # so when the iPhone echoes back, we echo it again (frame 7007)
+        # and the iPhone proceeds to send SYNC(cwpa).
+        logger.info("Sending initial PING to iPhone...")
+        try:
+            self._endpoint.write(build_ping())
+        except Exception as _ping_ex:
+            logger.warning("Initial PING send failed: %s — will retry in loop", _ping_ex)
+
         _ping_wait_start = time.monotonic()
-        _ping_fallback_sent = False
+        _ping_retry_sent = False
 
         while self._running:
-            # Fallback: If iPhone hasn't sent PING after 10s, send ours.
-            # Some firmware/iOS versions or quick re-connections may expect
-            # the host to initiate.  This covers both protocol variants.
+            # Retry PING once if no response after 5 s (rare, but guards against
+            # a dropped initial write due to a transient endpoint stall).
             if (not self._streaming_started
-                    and not _ping_fallback_sent
+                    and not _ping_retry_sent
                     and not self._handshake_done.is_set()
-                    and time.monotonic() - _ping_wait_start > 10.0):
-                logger.info("No PING from iPhone after 10s — sending PING as fallback")
+                    and time.monotonic() - _ping_wait_start > 5.0):
+                logger.info("No PING echo from iPhone after 5 s — retrying PING")
                 try:
                     self._endpoint.write(build_ping())
-                    _ping_fallback_sent = True
+                    _ping_retry_sent = True
                 except Exception as _e:
-                    logger.warning("Fallback PING send failed: %s", _e)
+                    logger.warning("PING retry send failed: %s", _e)
             # ── Read from USB ───────────────────────────────────────
             try:
                 # During handshake (before streaming starts) use a small read

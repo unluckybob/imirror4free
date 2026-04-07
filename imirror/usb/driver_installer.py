@@ -331,7 +331,7 @@ def generate_libusb0_inf(
 DeviceName  = "iPhone (Composite Parent)"
 VendorName  = "Apple, Inc."
 SourceName  = "iPhone (Composite Parent) Install Disk"
-DeviceID    = "{APPLE_VID:04X}&PID_{pid:04X}"
+DeviceID    = "VID_{APPLE_VID:04X}&PID_{pid:04X}"
 DeviceGUID  = "{{CB090FED-2DFC-4040-9237-9F2F69751D8D}}"
 
 [Version]
