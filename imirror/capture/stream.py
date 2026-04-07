@@ -100,6 +100,9 @@ class ValeriaStreamCapture(CaptureBackend):
         self._on_raw_audio = None      # Callable[[bytes], None]
         self._on_stream_stopped = None # Callable[[], None]
 
+        # usbmux keepalive session (required for CWPA after PING on Windows)
+        self._usbmux = None            # UsbMuxSession
+
     @property
     def name(self) -> str:
         return "Valeria Stream (H.264)"
@@ -432,6 +435,38 @@ class ValeriaStreamCapture(CaptureBackend):
                 StreamError.CLAIM_FAILED,
             )
             return False
+
+        # ── Step 5: Start usbmux keepalive session ────────────────────
+        # The iPhone Valeria firmware requires an active usbmuxd session on
+        # Interface 0 (the USB multiplexer) before it will send CWPA after
+        # the initial PING.  Without this, the PING handshake completes but
+        # the iPhone stalls ~19 s later with [Errno 32] Pipe error — it is
+        # waiting for a host usbmuxd connection that never arrives.
+        #
+        # UsbMuxSession claims Interface 0, sends a plist Hello, and drains
+        # the IN endpoint in a background thread throughout streaming.
+        try:
+            from imirror.usb.usbmux import UsbMuxSession
+            self._usbmux = UsbMuxSession(self._endpoint._dev)
+            if self._usbmux.start():
+                logger.info(
+                    "USB: usbmux keepalive session started — "
+                    "iPhone should now send CWPA after PING"
+                )
+                # Brief wait for the Hello exchange so the session is
+                # established before the protocol loop starts reading.
+                self._usbmux.wait_ready(timeout=2.0)
+            else:
+                logger.warning(
+                    "USB: usbmux session could not start — "
+                    "CWPA may not arrive after PING (Windows WinUSB limitation)"
+                )
+                self._usbmux = None
+        except Exception as _ue:
+            logger.warning(
+                "USB: usbmux session init failed (non-fatal): %s", _ue
+            )
+            self._usbmux = None
 
         logger.info("USB: AV endpoints ready for streaming")
         return True
@@ -834,6 +869,13 @@ class ValeriaStreamCapture(CaptureBackend):
 
     def _cleanup(self) -> None:
         """Release all resources."""
+        if self._usbmux:
+            try:
+                self._usbmux.stop()
+            except Exception:
+                pass
+            self._usbmux = None
+
         if self._endpoint:
             try:
                 self._endpoint.close()
