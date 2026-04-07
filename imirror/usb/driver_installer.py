@@ -52,10 +52,11 @@ DRIVER_DIR_NAME = "imirror_driver"
 class DriverInstallResult:
     """Result of a driver installation attempt."""
 
-    def __init__(self, success: bool, message: str, needs_replug: bool = False):
+    def __init__(self, success: bool, message: str, needs_replug: bool = False, needs_restart: bool = False):
         self.success = success
         self.message = message
         self.needs_replug = needs_replug
+        self.needs_restart = needs_restart
 
     def __repr__(self):
         status = "[OK]" if self.success else "[FAIL]"
@@ -293,8 +294,6 @@ def generate_winusb_inf(
     # Primary hardware ID — matches the specific iPhone model
     hw_id_specific = f"USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}"
 
-    # Secondary — matches any Apple USB device (broader fallback)
-    hw_id_vendor = f"USB\\VID_{APPLE_VID:04X}"
 
     inf_content = f"""; ═══════════════════════════════════════════════════════════════
 ; IMIRROR4FREE Mirror Driver — WinUSB for iPhone AV Streaming
@@ -328,15 +327,12 @@ DriverVer   = 04/05/2026,2.0.0.0
 
 [DeviceList.NTamd64]
 %DeviceName% = USB_Install, {hw_id_specific}
-%DeviceNameGeneric% = USB_Install, {hw_id_vendor}
 
 [DeviceList.NTx86]
 %DeviceName% = USB_Install, {hw_id_specific}
-%DeviceNameGeneric% = USB_Install, {hw_id_vendor}
 
 [DeviceList.NTarm64]
 %DeviceName% = USB_Install, {hw_id_specific}
-%DeviceNameGeneric% = USB_Install, {hw_id_vendor}
 
 ; ─── Installation ────────────────────────────────────────────
 
@@ -360,7 +356,6 @@ HKR,,DeviceInterfaceGUIDs,0x10000,"{device_guid}"
 ProviderName     = "IMIRROR4FREE"
 MfgName          = "Apple Inc."
 DeviceName       = "iPhone Mirror Interface (IMIRROR4FREE)"
-DeviceNameGeneric = "Apple Device Mirror Interface (IMIRROR4FREE)"
 """
 
     inf_path = os.path.join(output_dir, "imirror_mirror.inf")
@@ -685,9 +680,15 @@ def _install_via_pnputil(inf_path: str) -> DriverInstallResult:
         output = (result.stdout + "\n" + result.stderr).strip()
         logger.info("pnputil output:\n%s", output)
 
-        # Check for success indicators
+        # Check for success indicators.
+        # Exit code 3010 = success but Windows requires a restart to activate
+        # the new driver (the old Apple driver service is still loaded).
+        # This mirrors AnyMiro's behavior: it prompts "restart required" on
+        # first driver installation because Apple's driver is currently in use.
+        needs_restart = (result.returncode == 3010)
         success = (
             result.returncode == 0
+            or needs_restart
             or "added" in output.lower()
             or "installed" in output.lower()
             or "staged" in output.lower()
@@ -702,6 +703,15 @@ def _install_via_pnputil(inf_path: str) -> DriverInstallResult:
             logger.info("Driver installed as: %s", oem_name)
 
         if success:
+            if needs_restart:
+                return DriverInstallResult(
+                    True,
+                    "Mirror driver installed! Windows needs to restart to activate "
+                    "the new driver (the Apple USB service is currently in use). "
+                    "Please save your work and restart your PC, then reopen iMirror4Free.",
+                    needs_replug=False,
+                    needs_restart=True,
+                )
             return DriverInstallResult(
                 True,
                 "Mirror driver installed successfully! "
