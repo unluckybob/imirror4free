@@ -712,10 +712,10 @@ class MainWindow(QMainWindow):
     # ─── Driver Management ──────────────────────────────────────────
 
     def _install_driver(self) -> None:
-        """Install the WinUSB mirror driver."""
+        """Install the libusb-win32 mirror driver."""
         reply = QMessageBox.question(
             self, "Install Mirror Driver",
-            "This will install the WinUSB mirror driver for iPhone USB streaming.\n\n"
+            "This will install the libusb-win32 mirror driver for iPhone USB streaming.\n\n"
             "• Requires administrator privileges\n"
             "• One-time setup (about 10 seconds)\n"
             "• You may need to replug your iPhone after installation\n\n"
@@ -816,7 +816,7 @@ class MainWindow(QMainWindow):
             title = "Mirror Driver Issue"
             msg = (
                 "IMIRROR4FREE couldn't claim the iPhone's AV streaming interface.\n\n"
-                "This usually means the WinUSB mirror driver needs to be reinstalled.\n\n"
+                "This usually means the libusb-win32 mirror driver needs to be reinstalled.\n\n"
                 "Would you like to reinstall it now? (requires admin approval)"
             )
         else:

@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
     # Phase 2: Driver management commands
     parser.add_argument(
         "--install-driver", action="store_true",
-        help="Install the WinUSB mirror driver (requires admin)",
+        help="Install the libusb-win32 mirror driver (requires admin)",
     )
 
     parser.add_argument(
@@ -123,7 +123,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def cmd_install_driver() -> int:
-    """Install the WinUSB mirror driver via CLI."""
+    """Install the libusb-win32 mirror driver via CLI."""
     from imirror.usb.driver_installer import full_driver_setup
     print(f"{__app_name__} — Mirror Driver Installer")
     print("=" * 50)

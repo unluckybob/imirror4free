@@ -11,7 +11,7 @@ Architecture:
     USB Bulk OUT ← Response Builder ← ValeriaSession
 
 Streaming lifecycle:
-    1. Check driver status (Phase 2: auto-detect WinUSB availability)
+    1. Check driver status (Phase 2: auto-detect libusb-win32 availability)
     2. Initialize USB endpoints (find iPhone, enable QT config, claim AV interface)
     3. PING handshake
     4. SYNC negotiations (CWPA → audio clock, AFMT → audio format,
@@ -27,7 +27,7 @@ Streaming lifecycle:
     7. Clean shutdown (HPA0 + HPD0, release endpoints)
 
 Prerequisites:
-    - WinUSB mirror driver installed (auto-installed by IMIRROR4FREE)
+    - libusb-win32 mirror driver installed (auto-installed by IMIRROR4FREE)
     - pyusb + libusb-package (bundled in requirements.txt)
 """
 
@@ -72,7 +72,7 @@ class ValeriaStreamCapture(CaptureBackend):
     and delivers RGB pixel buffers to the renderer at 30-60 FPS.
 
     Falls back gracefully to the Screenshot backend if USB raw access
-    is unavailable (e.g., WinUSB driver not installed).
+    is unavailable (e.g., libusb-win32 driver not installed).
     """
 
     def __init__(self):
@@ -178,7 +178,7 @@ class ValeriaStreamCapture(CaptureBackend):
             return False
 
     def check_driver_ready(self) -> tuple[bool, str, str]:
-        """Check if the WinUSB driver is ready for Valeria streaming.
+        """Check if the libusb-win32 driver is ready for Valeria streaming.
 
         Returns:
             Tuple of (ready, message, error_type).
@@ -393,7 +393,7 @@ class ValeriaStreamCapture(CaptureBackend):
                 self._signal_error(
                     "Cannot enable AV mode. The mirror driver may need to be "
                     "installed. Click 'Install Mirror Driver' in the app, or "
-                    "install WinUSB via Zadig (https://zadig.akeo.ie/).",
+                    "install the libusb-win32 mirror driver via 'Install Mirror Driver', or use Zadig (https://zadig.akeo.ie/) and select libusb-win32.",
                     StreamError.DRIVER_NEEDED,
                 )
                 return False
@@ -420,23 +420,23 @@ class ValeriaStreamCapture(CaptureBackend):
             #
             # A) QT config active but claim returned Entity-not-found
             #    ([Errno 2]).  This happens after a [Errno 32] Pipe error where
-            #    WinUSB loses its driver binding even though the iPhone stays in
+            #    libusb-win32 loses its driver binding even though the iPhone stays in
             #    Config 5.
             #
             # B) "Optimistic" first-ever connection: QT was enabled and the
             #    device reappeared, but wait_for_reenumeration() hit its 15 s
             #    patience limit before has_qt_config() turned True.  Windows
-            #    was still installing the WinUSB INF for Config 5's interfaces
+            #    was still installing the libusb-win32 INF for Config 5's interfaces
             #    for the very first time (10–15 s).  claim_av_endpoints() then
             #    calls set_configuration(5) + 3 s wait, but that's not enough —
             #    the AV interface is still not visible.  A second QT enable
-            #    after WinUSB has now fully bound the INF succeeds quickly.
+            #    after libusb-win32 has now fully bound the INF succeeds quickly.
             #
             # In both cases, resending the QT control transfer gives the iPhone
-            # a fresh re-enumeration, and WinUSB re-binds cleanly.
+            # a fresh re-enumeration, and libusb-win32 re-binds cleanly.
             logger.info(
                 "USB: Claim failed (QT config %s) — forcing full QT "
-                "re-enable to recover WinUSB binding...",
+                "re-enable to recover libusb-win32 binding...",
                 "active" if self._endpoint.has_qt_config() else "not yet visible",
             )
             if self._endpoint.enable_qt_config():
@@ -476,7 +476,7 @@ class ValeriaStreamCapture(CaptureBackend):
             else:
                 logger.warning(
                     "USB: usbmux session could not start — "
-                    "CWPA may not arrive after PING (Windows WinUSB limitation)"
+                    "CWPA may not arrive after PING (Windows libusb-win32 timing)"
                 )
                 self._usbmux = None
         except Exception as _ue:
@@ -533,17 +533,17 @@ class ValeriaStreamCapture(CaptureBackend):
             try:
                 # During handshake (before streaming starts) use a small read
                 # buffer so the iPhone's short PING packet (16 bytes) immediately
-                # terminates the WinUSB bulk transfer.  Large URBs (1 MB) may
-                # silently discard short-packet completions on some WinUSB builds,
+                # terminates the libusb-win32 bulk transfer.  Large URBs (1 MB) may
+                # silently discard short-packet completions on some libusb-win32 builds,
                 # which causes PING to be lost and the handshake to never start.
                 # Once streaming is confirmed we switch to the full buffer size
                 # for high-throughput video reads.
                 # During handshake (before PING), use 4096-byte reads AND a long
-                # timeout (5000ms) so the pending WinUSB URB stays open long enough
+                # timeout (5000ms) so the pending libusb-win32 URB stays open long enough
                 # to capture the iPhone's 16-byte PING packet.
                 #
                 # With a 100ms timeout: if PING arrives as the timeout fires,
-                # WinUSB cancels the pending read and DISCARDS the received bytes.
+                # libusb-win32 cancels the pending read and DISCARDS the received bytes.
                 # This is a ~50/50 race since iPhone sends PING ~100ms after claim.
                 # With 5000ms: PING arrives well within the window every time.
                 # (If PING doesn't arrive in 5s we treat it as a timeout and retry.)

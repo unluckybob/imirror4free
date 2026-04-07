@@ -116,7 +116,7 @@ class USBEndpoint:
         installs. This backend communicates with devices whose service is
         set to 'libusb0' (visible in Device Manager under LIBUSB-WIN32 DEVICES).
 
-        Falls back to libusb1 on non-Windows platforms.
+        Falls back to libusb1 on non-Windows platforms (Linux/macOS).
         """
         try:
             if platform.system() == "Windows":
@@ -135,15 +135,15 @@ class USBEndpoint:
                 except Exception as e:
                     logger.debug("libusb0 backend init failed: %s", e)
 
-                # Fallback: libusb1 (WinUSB) — for devices bound to winusb.sys
+                # Fallback: libusb1 — for non-Windows platforms or edge cases
                 try:
                     import usb.backend.libusb1 as _lb1
                     self._backend = _lb1.get_backend()
                     if self._backend:
-                        logger.debug("Using libusb1 (WinUSB) backend as fallback")
+                        logger.debug("Using libusb1 backend as fallback (non-Windows / edge case)")
                         return
                 except Exception as e:
-                    logger.debug("libusb1 backend init failed: %s", e)
+                    logger.debug("libusb1 fallback init failed: %s", e)
 
                 logger.warning(
                     "No libusb backend found on Windows. "
@@ -152,11 +152,11 @@ class USBEndpoint:
                 )
                 return
 
-            # Non-Windows: use libusb1
+            # Non-Windows: use libusb1 (standard backend for Linux/macOS)
             import usb.backend.libusb1
             self._backend = usb.backend.libusb1.get_backend()
             if self._backend:
-                logger.debug("Using system libusb1 backend")
+                logger.debug("Using system libusb1 backend (non-Windows)")
             else:
                 logger.warning("No libusb backend found — USB access will fail")
 
@@ -201,8 +201,8 @@ class USBEndpoint:
         Returns True if the Valeria AV interface (SubClass 0x2A) is present
         in the CURRENTLY ACTIVE USB configuration.
 
-        On Windows/WinUSB, iterating all USB configurations often fails because
-        WinUSB only exposes the active configuration.  We therefore check the
+        On Windows/libusb-win32, iterating all USB configurations often fails because
+        libusb-win32 only exposes the active configuration.  We therefore check the
         active configuration first via get_active_configuration(), which issues
         a real GET_CONFIGURATION control request and is reliable on all platforms.
 
@@ -215,7 +215,7 @@ class USBEndpoint:
         if not self._dev:
             return False
 
-        # Method 1 — check the active configuration (reliable on Windows/WinUSB)
+        # Method 1 — check the active configuration (reliable on Windows/libusb-win32)
         try:
             cfg = self._dev.get_active_configuration()
             for intf in cfg:
@@ -232,7 +232,7 @@ class USBEndpoint:
             logger.debug("get_active_configuration: %s", e)
 
         # Method 2 — iterate all configurations (Linux/macOS only, last resort).
-        # On Windows/WinUSB this is skipped to avoid false positives where
+        # On Windows/libusb-win32 this is skipped to avoid false positives where
         # Config 5 descriptors are readable but Config 1 is actually active.
         if platform.system() != "Windows":
             try:
@@ -302,10 +302,10 @@ class USBEndpoint:
         """Wait for the iPhone to re-enumerate with QT AV config.
 
         After enable_qt_config(), the iPhone disconnects and reconnects.
-        On Windows/WinUSB, two re-enumeration patterns are observed:
+        On Windows/libusb-win32, two re-enumeration patterns are observed:
 
         Pattern A — iPhone auto-selects Config 5:
-          The iPhone itself comes back with Config 5 active. WinUSB binds
+          The iPhone itself comes back with Config 5 active. libusb-win32 binds
           to interface 2 automatically (~2–5 s).
 
         Pattern B — iPhone comes back in Config 1, needs set_configuration(5):
@@ -315,7 +315,7 @@ class USBEndpoint:
         In both patterns, after the device reappears we:
           1. Re-initialize the libusb backend (clears stale descriptor cache)
           2. Re-find the device with the fresh backend
-          3. Wait 3 s for WinUSB driver binding to complete
+          3. Wait 3 s for libusb-win32 driver binding to complete
           4. Check has_qt_config() — returns True if Config 5 is active
           5. If has_qt_config() is still False, call set_configuration(5) once
           6. If device has been back for >8 s total, proceed optimistically —
@@ -391,9 +391,9 @@ class USBEndpoint:
                 device_reappeared = True
                 reappear_time = time.monotonic()
 
-                # Give WinUSB time to bind the driver for the new device instance.
+                # Give libusb-win32 time to bind the driver for the new device instance.
                 # USB trace analysis shows binding typically takes 2–4 s.
-                logger.debug("Re-enum: waiting 3s for WinUSB driver binding...")
+                logger.debug("Re-enum: waiting 3s for libusb-win32 driver binding...")
                 time.sleep(3.0)
                 continue
             else:
@@ -421,7 +421,7 @@ class USBEndpoint:
                     self._dev.set_configuration(QT_CONFIG_VALUE)
                     logger.debug(
                         "Re-enum attempt %d: set_configuration(%d) called — "
-                        "waiting 5s for WinUSB binding",
+                        "waiting 5s for libusb-win32 binding",
                         attempt, QT_CONFIG_VALUE,
                     )
                 except Exception as set_cfg_err:
@@ -431,7 +431,7 @@ class USBEndpoint:
                     )
                 set_config_attempted = True
                 # Increased from 3s to 5s: first-ever Config 5 binding takes
-                # longer than subsequent ones because WinUSB must install the
+                # longer than subsequent ones because libusb-win32 must install the
                 # driver INF for the new interface configuration.
                 time.sleep(5.0)
                 # Flush descriptor cache after set_configuration() — same as
@@ -452,15 +452,15 @@ class USBEndpoint:
 
             # ── Optimistic fallthrough after sufficient wait ───────────
             # has_qt_config() uses get_active_configuration() which may fail on
-            # some Windows/WinUSB setups even when Config 5 is genuinely active.
-            # Threshold raised to 15 s (was 8 s): on first-ever connection WinUSB
+            # some Windows/libusb-win32 setups even when Config 5 is genuinely active.
+            # Threshold raised to 15 s (was 8 s): on first-ever connection libusb-win32
             # needs 10-15 s to bind Config 5's interface for the first time.
             # Keeping the threshold low caused the first attempt to always fail
-            # because we bailed out before WinUSB finished its driver INF install.
+            # because we bailed out before libusb-win32 finished its driver INF install.
             if elapsed_reappear >= 15.0:
                 logger.warning(
                     "Re-enum: has_qt_config() still False after %.1fs since reappear "
-                    "— proceeding optimistically (WinUSB may have bound Config 5)",
+                    "— proceeding optimistically (libusb-win32 may have bound Config 5)",
                     elapsed_reappear,
                 )
                 return True
@@ -477,7 +477,7 @@ class USBEndpoint:
         if device_reappeared:
             logger.warning(
                 "Re-enum: timed out but device DID reappear — "
-                "proceeding to claim attempt (WinUSB may be ready)"
+                "proceeding to claim attempt (libusb-win32 may be ready)"
             )
             return True
 
@@ -501,14 +501,14 @@ class USBEndpoint:
 
         # ── Step 1: Activate QT AV configuration ──────────────────────
         # Check if Config 5 is active. If not, activate it.
-        # On Windows/WinUSB, calling set_configuration() when QT config is
-        # already active causes WinUSB to re-initialize driver binding,
+        # On Windows/libusb-win32, calling set_configuration() when QT config is
+        # already active causes libusb-win32 to re-initialize driver binding,
         # which breaks claim_interface(). Only call it when needed.
         if not self.has_qt_config():
             try:
                 self._dev.set_configuration(QT_CONFIG_VALUE)
                 logger.debug("Set USB configuration %d (QT AV mode)", QT_CONFIG_VALUE)
-                # Wait for WinUSB to bind to the new configuration
+                # Wait for libusb-win32 to bind to the new configuration
                 time.sleep(3.0)
                 # Re-init backend to flush descriptor cache after config change
                 self._init_backend()
@@ -529,11 +529,11 @@ class USBEndpoint:
         else:
             logger.debug(
                 "QT AV configuration already active — skipping set_configuration() "
-                "to preserve iPhone Valeria state and WinUSB driver binding"
+                "to preserve iPhone Valeria state and libusb-win32 driver binding"
             )
 
         # ── Step 2: Find the AV interface ─────────────────────────────
-        # Use get_active_configuration() first — on Windows/WinUSB,
+        # Use get_active_configuration() first — on Windows/libusb-win32,
         # iterating all configurations often fails.
         self._interface = self._find_av_interface()
 
@@ -557,14 +557,14 @@ class USBEndpoint:
             pass  # Not supported on Windows
 
         # ── Step 3: Claim the interface ───────────────────────────────
-        # Retry with increasing patience. On Windows, WinUSB driver binding
+        # Retry with increasing patience. On Windows, libusb-win32 driver binding
         # may not be complete immediately after set_configuration() or
         # device re-enumeration, causing [Errno 2] Entity not found.
         # Strategy:
         #   Attempt 1  — immediate try
         #   Attempt 2  — after set_configuration(5) + 3s wait (in case Config
         #                wasn't switched yet despite has_qt_config() returning True)
-        #   Attempts 3-5 — after 2s each (WinUSB still binding)
+        #   Attempts 3-5 — after 2s each (libusb-win32 still binding)
         claimed = False
         for claim_attempt in range(5):
             try:
@@ -708,7 +708,7 @@ class USBEndpoint:
         except Exception as e:
             logger.debug("_find_av_interface get_active_configuration: %s", e)
 
-        # Method 2: all configurations (Linux/macOS only — avoids WinUSB false positives)
+        # Method 2: all configurations (Linux/macOS only — avoids libusb-win32 false positives)
         if platform.system() != "Windows":
             try:
                 for cfg in self._dev:

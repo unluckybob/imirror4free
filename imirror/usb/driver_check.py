@@ -113,7 +113,7 @@ class DriverCheckResult:
             lines.append("    Run: python -m imirror.usb.driver_installer --install")
             lines.append("    Or click 'Install Mirror Driver' in the app.")
             lines.append("")
-            lines.append("  Option B — Manual (via Zadig):")
+            lines.append("  Option B — Manual (via Zadig, select libusb-win32):")
             lines.append("    1. Download Zadig from https://zadig.akeo.ie/")
             lines.append("    2. Connect your iPhone via USB")
             lines.append("    3. In Zadig: Options → List All Devices")
@@ -177,7 +177,7 @@ def check_usb_drivers() -> DriverCheckResult:
             except Exception:
                 pass
 
-            # Fallback to libusb1 (WinUSB)
+            # Fallback to libusb1 (non-Windows / last resort)
             if not backend:
                 try:
                     import usb.backend.libusb1
@@ -211,7 +211,7 @@ def check_usb_drivers() -> DriverCheckResult:
         devices = list(usb.core.find(**kwargs))
 
         if not devices:
-            # On Windows, also try WMI detection (works without WinUSB)
+            # On Windows, also try WMI detection (works without libusb-win32)
             if platform.system() == "Windows":
                 try:
                     from imirror.usb.driver_installer import detect_iphone_pid
