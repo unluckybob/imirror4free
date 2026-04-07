@@ -244,7 +244,12 @@ class DeviceManager:
         # Log driver status
         driver_status = self._diagnostics.get("driver_status")
         if driver_status:
-            logger.info("  Mirror driver: %s", "INSTALLED" if driver_status.installed else "NOT INSTALLED")
+            # Check both .installed (app installed it) AND .libusb_accessible
+            # (WinUSB active, e.g. installed via Zadig).  The old check only
+            # looked at .installed, so it logged "NOT INSTALLED" even when
+            # WinUSB was already active and pyusb could reach the device.
+            _drv_ok = driver_status.installed or driver_status.libusb_accessible
+            logger.info("  Mirror driver: %s", "INSTALLED" if _drv_ok else "NOT INSTALLED")
             logger.info("  libusb accessible: %s", "YES" if driver_status.libusb_accessible else "NO")
 
         self._usbmuxd_available = self._diagnostics.get("usbmuxd_reachable", False)
