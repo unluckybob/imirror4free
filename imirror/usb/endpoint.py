@@ -592,19 +592,27 @@ class USBEndpoint:
             self._ep_out.bEndpointAddress, self._ep_out.wMaxPacketSize,
         )
 
-        # Clear any halt/stall on the IN endpoint — ensures it is in a ready
-        # state so the iPhone can immediately send its first PING packet.
-        # After a pipe error or abrupt disconnect the endpoint may remain
-        # STALLed until the host sends CLEAR_FEATURE(ENDPOINT_HALT).
-        try:
-            import usb.control as _usb_ctrl
-            _usb_ctrl.clear_stall(self._dev, self._ep_in)
-            logger.debug(
-                "Cleared stall on IN endpoint 0x%02X",
-                self._ep_in.bEndpointAddress,
-            )
-        except Exception as _cs_err:
-            logger.debug("clear_stall IN endpoint (non-fatal): %s", _cs_err)
+        # Clear any halt/stall on both IN and OUT endpoints.
+        # After a [Errno 32] Pipe error the OUT endpoint can remain STALLed,
+        # causing subsequent fallback PING writes to time out with [Errno 10060]
+        # even though the interface claim succeeded.  Clearing both ensures a
+        # clean state for every new connection attempt.
+        for _ep_obj, _ep_label in (
+            (self._ep_in, "IN"),
+            (self._ep_out, "OUT"),
+        ):
+            try:
+                import usb.control as _usb_ctrl
+                _usb_ctrl.clear_stall(self._dev, _ep_obj)
+                logger.debug(
+                    "Cleared stall on %s endpoint 0x%02X",
+                    _ep_label, _ep_obj.bEndpointAddress,
+                )
+            except Exception as _cs_err:
+                logger.debug(
+                    "clear_stall %s endpoint (non-fatal): %s",
+                    _ep_label, _cs_err,
+                )
 
         self._is_connected = True
         return True
