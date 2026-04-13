@@ -714,12 +714,14 @@ class ValeriaStreamCapture(CaptureBackend):
 
                         if self._decoder and not self._decoder.is_initialized:
                             extradata = self._session.get_decoder_extradata()
+                            # v2.4 §J2: FEED contains HEVC regardless of Valeria flag
+                            codec_name = "hevc" if extradata else "h264"
                             self._decoder.initialize(
-                                codec_name="h264",
+                                codec_name=codec_name,
                                 extradata=extradata,
                             )
                             if extradata:
-                                logger.info("Decoder initialized with SPS/PPS extradata (%d bytes)", len(extradata))
+                                logger.info("Decoder initialized with %s SPS/PPS extradata (%d bytes)", codec_name, len(extradata))
                             else:
                                 logger.warning("Decoder initialized WITHOUT SPS/PPS — may fail until keyframe")
 

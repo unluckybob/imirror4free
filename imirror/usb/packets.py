@@ -4,6 +4,8 @@ All magic bytes are REVERSED on wire (ASYN→nysa, SYNC→cnys, etc.)
 """
 import struct
 from typing import Optional
+
+# Import from root config.py (v2.4 latency values)
 from config import (
     DEFAULT_DISPLAY_WIDTH, DEFAULT_DISPLAY_HEIGHT,
     AUDIO_BUFFER_AHEAD_INTERVAL, AUDIO_SCREEN_LATENCY
@@ -21,7 +23,7 @@ class Magic:
     CLOK = b"kolc"
     TIME = b"emit"
     SKEW = b"weks"
-    OG   = b"\x20\x21og"
+    OG   = b"\x00\x00GO"
     STOP = b"pots"
     FEED = b"deef"
     EAT  = b"!tae"
@@ -135,7 +137,7 @@ def build_asyn_hpa0(audio_clock_ref: bytes) -> bytes:
     return struct.pack("<I4sQ4s", 20, Magic.ASYN, struct.unpack("<Q", audio_clock_ref)[0], Magic.HPA0)
 
 # ─── AVCC → Annex-B Conversion ────────────────────────────────────
-def avcc_to_annexb(avcc_ bytes) -> Optional[bytes]:
+def avcc_to_annexb(avcc_data: bytes) -> Optional[bytes]:
     out = bytearray()
     pos = 0
     while pos + 4 <= len(avcc_data):

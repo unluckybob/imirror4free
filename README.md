@@ -8,7 +8,7 @@ Full native resolution • Low latency • GPU-accelerated • No watermarks •
 
 ## 🎯 What is this?
 
-IMIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free. It uses Apple's Valeria protocol (the same technology behind QuickTime) to stream your iPhone's H.264 video directly over USB at up to 60 FPS.
+IMIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free. It uses Apple's Valeria protocol (the same technology behind QuickTime) to stream your iPhone's HEVC video directly over USB at up to 60 FPS.
 
 **No companion app on iPhone.** No WiFi. No cloud. Just plug in your USB cable and go.
 
@@ -17,7 +17,7 @@ IMIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free
 | Feature | Details |
 |---------|---------|
 | 📺 **Full native resolution** | Up to 2868×1320 (iPhone 15 Pro Max) |
-| ⚡ **Low latency** | Direct H.264 stream over USB, GPU-accelerated decode |
+| ⚡ **Low latency** | Direct HEVC stream over USB, GPU-accelerated decode |
 | 🔊 **Audio passthrough** | iPhone audio plays through your PC speakers |
 | 🎬 **Screen recording** | Record to MP4/MKV with zero quality loss (direct mux) |
 | 📸 **Screenshots** | PNG/JPEG capture with one click or Ctrl+S |

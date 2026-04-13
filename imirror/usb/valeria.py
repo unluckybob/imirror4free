@@ -62,6 +62,7 @@ class ValeriaEngine:
 
     def get_initial_packets(self) -> list[bytes]:
         """Returns packets to send at start of handshake."""
-        # HPD1 sent TWICE before CWPA-RPLY
+        # v2.4 §A5: HPD1 sent TWICE, then HPA1 after CWPA-RPLY
         hpd1 = build_asyn_hpd1()
-        return [hpd1, hpd1]
+        hpa1 = build_asyn_hpa1(b"\x00\x00\x00\x00\x00\x00\x00\x00")  # placeholder clock ref
+        return [hpd1, hpd1, hpa1]

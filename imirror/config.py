@@ -49,7 +49,9 @@ class _Config:
         self.screenshot_target_fps: int = 15
 
         # ── Valeria stream backend ──────────────────────────────────
-        # USB bulk I/O tuning
+        # USB bulk I/O tuning (v2.4 §A1: low-latency optimized)
+        self.usb_read_chunk_size: int = 4096          # Low latency, OSS-confirmed (v2.4 §A1)
+        self.usb_read_concurrent: int = 5              # Concurrent pending reads
         self.usb_read_size: int = 1048576        # Bytes per bulk read (1MB — handles large 4K keyframes in single read)
         self.usb_read_timeout_ms: int = 100      # Timeout per read (ms)
         self.usb_write_timeout_ms: int = 500     # Timeout per write (ms)
