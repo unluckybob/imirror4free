@@ -51,7 +51,14 @@ jobs:
 
       - name: Copy source code
         shell: pwsh
-        run: Copy-Item -Recurse imirror dist\IMIRROR4FREE\imirror
+        run: |
+          # Core Python modules (root level)
+          Copy-Item config.py dist\IMIRROR4FREE\config.py
+          Copy-Item main.py dist\IMIRROR4FREE\main.py
+          Copy-Item run.py dist\IMIRROR4FREE\run.py
+          Copy-Item setup.py dist\IMIRROR4FREE\setup.py
+          # imirror package
+          Copy-Item -Recurse imirror dist\IMIRROR4FREE\imirror
 
       - name: Copy assets
         shell: pwsh
@@ -66,7 +73,8 @@ jobs:
       - name: Create debug launcher
         shell: pwsh
         run: |
-          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -m imirror.main`r`npause"
+          # Debug launcher needs proper path setup
+          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); exec('from imirror.main import main; main()')`"`r`npause"
           [System.IO.File]::WriteAllText("dist\IMIRROR4FREE\debug.bat", $bat)
 
       - name: Verify build
@@ -75,7 +83,10 @@ jobs:
           Get-ChildItem dist\IMIRROR4FREE -Depth 0 | Format-Table Name, Length
           $sig = Get-AuthenticodeSignature "dist\IMIRROR4FREE\python\python312.dll"
           Write-Host "DLL sig: $($sig.Status)"
-          & dist\IMIRROR4FREE\python\python.exe -c "import imirror; print('v' + imirror.__version__ + ' OK')"
+          # Import path needs imirror package in proper location
+          Push-Location dist\IMIRROR4FREE
+          & .\python\python.exe -c "import sys; sys.path.insert(0, '.'); import imirror; print('v' + imirror.__version__ + ' OK')"
+          Pop-Location
 
       - name: Install NSIS
         shell: pwsh
