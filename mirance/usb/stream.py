@@ -34,11 +34,7 @@ class StreamManager:
 
     def _read_loop(self):
         try:
-            # v2.4 §A5: Send HPD1 twice before handshake continues
-            for pkt in self.engine.get_initial_packets():
-                self._write_packet(pkt)
-
-            logger.info("📡 USB read loop started...")
+            logger.info("📡 USB read loop started (waiting for PING from device)...")
             while self.running:
                 chunk = self.ep_in.read(4096, timeout=2000)
                 if not chunk:
@@ -72,12 +68,17 @@ class StreamManager:
                 sub = payload[16:20]
                 corr = payload[8:16]
                 reply = self.engine.handle_sync(sub, corr, payload)
-                if reply: 
+                if reply:
                     self._write_packet(reply)
-                    # v2.4: Send any pending HPA1 after CWPA-RPLY
-                    pending = self.engine.get_pending_hpa1()
-                    if pending:
-                        self._write_packet(pending)
+                    
+                    # v2.4 §A5: After CWPA-RPLY, queue HPD1×2 + HPA1
+                    if sub == Magic.CWPA:
+                        audio_ref = self.engine.audio_ref
+                        self.engine.queue_hpd1_hpa1(audio_ref)
+                    
+                    # Send any pending handshake packets
+                    for pkt in self.engine.get_pending_packets():
+                        self._write_packet(pkt)
             elif magic == Magic.ASYN:
                 sub = payload[16:20]
                 reply = self.engine.handle_asyn(sub, payload[20:])
