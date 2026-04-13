@@ -57,8 +57,8 @@ jobs:
           Copy-Item main.py dist\MIRANCE\main.py
           Copy-Item run.py dist\MIRANCE\run.py
           Copy-Item setup.py dist\MIRANCE\setup.py
-          # imirror package
-          Copy-Item -Recurse imirror dist\MIRANCE\imirror
+          # mirance package
+          Copy-Item -Recurse mirance dist\MIRANCE\mirance
 
       - name: Copy assets
         shell: pwsh
@@ -74,7 +74,7 @@ jobs:
         shell: pwsh
         run: |
           # Debug launcher needs proper path setup
-          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); exec('from imirror.main import main; main()')`"`r`npause"
+          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); exec('from mirance.main import main; main()')`"`r`npause"
           [System.IO.File]::WriteAllText("dist\MIRANCE\debug.bat", $bat)
 
       - name: Verify build
@@ -83,9 +83,9 @@ jobs:
           Get-ChildItem dist\MIRANCE -Depth 0 | Format-Table Name, Length
           $sig = Get-AuthenticodeSignature "dist\MIRANCE\python\python312.dll"
           Write-Host "DLL sig: $($sig.Status)"
-          # Import path needs imirror package in proper location
+          # Import path needs mirance package in proper location
           Push-Location dist\MIRANCE
-          & .\python\python.exe -c "import sys; sys.path.insert(0, '.'); import imirror; print('v' + imirror.__version__ + ' OK')"
+          & .\python\python.exe -c "import sys; sys.path.insert(0, '.'); import mirance; print('v' + mirance.__version__ + ' OK')"
           Pop-Location
 
       - name: Install NSIS
