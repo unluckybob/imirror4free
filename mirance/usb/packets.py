@@ -3,6 +3,7 @@ v2.4 Protocol Packet Builder & Parser.
 All magic bytes are REVERSED on wire (ASYN→nysa, SYNC→cnys, etc.)
 """
 import struct
+from enum import Enum
 from typing import Optional
 
 # Import from root config.py (v2.4 latency values)
@@ -10,6 +11,20 @@ from config import (
     DEFAULT_DISPLAY_WIDTH, DEFAULT_DISPLAY_HEIGHT,
     AUDIO_BUFFER_AHEAD_INTERVAL, AUDIO_SCREEN_LATENCY
 )
+
+# ─── Packet Types ──────────────────────────────────────────────
+class PacketType(Enum):
+    """v2.4 packet type identifiers."""
+    PING = 1
+    SYNC = 2
+    ASYN = 3
+    RPLY = 4
+    CWPA = 5
+    AFMT = 6
+    CVRP = 7
+    CLOK = 8
+    TIME = 9
+    SKEW = 10
 
 # ─── Wire-Endian Magic Bytes (v2.4 §A2.1 / §I7) ──────────────────
 class Magic:
