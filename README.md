@@ -35,15 +35,15 @@ iPhone (USB)
     │
     ├─── Apple's Valeria Protocol (USB Configuration 5)
     │         │
-    │    USB Bulk Transfer (H.264 + LPCM Audio)
+    │    USB Bulk Transfer (HEVC + LPCM Audio)
     │         │
     ├─── libusb-win32 Driver (one-time install, replaces Apple's driver on Interface 2)
     │         │
     │    MIRANCE
     │    ├── Valeria Protocol Handler (handshake, FEED/EAT!/NEED packets)
-    │    ├── H.264 Decoder (D3D11VA/DXVA2 GPU or FFmpeg software)
+    │    ├── HEVC Decoder (D3D11VA/DXVA2 GPU or FFmpeg software)
     │    ├── PCM Audio Player (48kHz stereo via sounddevice)
-    │    ├── Screen Recorder (direct H.264 mux to MP4 — zero re-encode)
+    │    ├── Screen Recorder (direct HEVC mux to MP4 — zero re-encode)
     │    └── PyQt6 GUI (dark theme, OpenGL rendering, FPS overlay)
     │
     └─── Your PC Screen 🖥️
@@ -53,7 +53,7 @@ iPhone (USB)
 
 | Backend | FPS | Method | When Used |
 |---------|-----|--------|-----------|
-| **Valeria Stream** | 30-60 | H.264 over USB | Default (after driver install) |
+| **Valeria Stream** | 30-60 | HEVC over USB | Default (after driver install) |
 | **Screenshot** | ~10-15 | PNG screenshots via DVT | Fallback (no driver needed) |
 
 The app auto-selects the best available backend.
@@ -157,11 +157,11 @@ mirance/
 │   │   └── packets.py            # Protocol packet codec (AVCC → Annex B)
 │   ├── capture/
 │   │   ├── base.py               # Abstract capture backend
-│   │   ├── stream.py             # Valeria H.264 stream capture
+│   │   ├── stream.py             # Valeria HEVC stream capture
 │   │   ├── screenshot.py         # Screenshot capture (fallback)
 │   │   └── recording.py          # MP4/MKV recording + screenshots
 │   ├── decode/
-│   │   ├── video.py              # HW-accelerated H.264 decoder
+│   │   ├── video.py              # HW-accelerated HEVC decoder
 │   │   └── audio.py              # Audio playback with ring buffer
 │   └── gui/
 │       ├── main_window.py        # Main window + settings dialog
@@ -183,7 +183,7 @@ MIRANCE uses Apple's proprietary Valeria protocol — the same protocol QuickTim
 2. **PING Handshake**: Exchange PING packets to establish the session
 3. **SYNC Negotiations**: Handle CWPA (audio clock), AFMT (audio format), CVRP (video format + SPS/PPS), CLOK, TIME, SKEW
 4. **Start Streaming**: Send HPD1 (start video) and HPA1 (start audio)
-5. **Continuous Stream**: Receive FEED (H.264 in CMSampleBuffer) and EAT! (LPCM audio) packets
+5. **Continuous Stream**: Receive FEED (HEVC in CMSampleBuffer) and EAT! (LPCM audio) packets
 6. **NEED Flow**: Send NEED packets after each FEED to request more frames
 
 ### The Driver Problem (and Solution)
@@ -198,7 +198,7 @@ Our `driver_installer.py` handles this automatically:
 
 ### Recording
 
-Recording works by muxing the raw H.264 stream directly into an MP4/MKV container — **zero re-encoding**. This means:
+Recording works by muxing the raw HEVC stream directly into an MP4/MKV container — **zero re-encoding**. This means:
 - Recording has zero CPU overhead
 - Output quality is identical to the stream (no generation loss)
 - Files are much smaller than screen capture recordings
@@ -209,7 +209,7 @@ Recording works by muxing the raw H.264 stream directly into an MP4/MKV containe
 |---------|---------|
 | `pyusb` + `libusb-package` | Raw USB access for Valeria protocol |
 | `pymobiledevice3` | iPhone detection, pairing, DVT services |
-| `av` (PyAV/FFmpeg) | H.264 decode + recording mux |
+| `av` (PyAV/FFmpeg) | HEVC decode + recording mux |
 | `PyQt6` | Application framework |
 | `PyOpenGL` | GPU-accelerated rendering |
 | `sounddevice` | Low-latency audio playback |
