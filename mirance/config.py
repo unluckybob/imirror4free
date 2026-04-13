@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Config file location
-_CONFIG_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "MIRROR4FREE")
+_CONFIG_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "MIRANCE")
 _CONFIG_FILE = os.path.join(_CONFIG_DIR, "settings.json")
 
 
@@ -85,16 +85,16 @@ class _Config:
         self.recording_video_bitrate: int = 8_000_000     # 8 Mbps
         self.recording_audio_enabled: bool = True
         self.recording_output_dir: str = os.path.join(
-            os.path.expanduser("~"), "Videos", "MIRROR4FREE"
+            os.path.expanduser("~"), "Videos", "MIRANCE"
         )
         self.screenshot_output_dir: str = os.path.join(
-            os.path.expanduser("~"), "Pictures", "MIRROR4FREE"
+            os.path.expanduser("~"), "Pictures", "MIRANCE"
         )
         self.screenshot_format: str = "png"       # "png" or "jpg"
         self.screenshot_quality: int = 95         # JPEG quality 1-100
 
         # ── GUI ─────────────────────────────────────────────────────
-        self.window_title: str = "MIRROR4FREE"
+        self.window_title: str = "MIRANCE"
         self.default_window_width: int = 400
         self.default_window_height: int = 870
         self.always_on_top: bool = False

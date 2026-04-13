@@ -1,5 +1,5 @@
 /*
- * IMIRROR4FREE Launcher
+ * IMIRANCE Launcher
  * Tiny native exe that launches the real Python app.
  * Python DLLs are from python.org (signed by PSF) so Windows trusts them.
  * Compiled with MSVC in GitHub Actions - no PyInstaller needed.

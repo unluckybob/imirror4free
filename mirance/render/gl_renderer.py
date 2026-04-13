@@ -22,11 +22,11 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QSurfaceFormat
 
-from imirror.render.shaders import (
+from mirance.render.shaders import (
     VERTEX_SHADER, FRAGMENT_SHADER,
     get_fullscreen_quad_vertices,
 )
-from imirror.config import config
+from mirance.config import config
 
 logger = logging.getLogger(__name__)
 

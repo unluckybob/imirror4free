@@ -1,5 +1,5 @@
 """
-PyInstaller Build Script for MIRROR4FREE.
+PyInstaller Build Script for MIRANCE.
 
 Creates a ONE-DIR Windows executable bundle with all dependencies.
 Uses --onedir (not --onefile) because native DLL packages like
@@ -8,15 +8,15 @@ to the executable. --onefile extracts to a temp dir and frequently
 breaks with these packages.
 
 The entry point is run.py (startup crash handler) which wraps
-imirror.main and catches import errors with a user-friendly dialog.
+mirance.main and catches import errors with a user-friendly dialog.
 
 Usage:
     python build/build_exe.py            # Release build (windowed, no console)
     python build/build_exe.py --debug    # Debug build (console visible for errors)
 
 Output:
-    dist/MIRROR4FREE/MIRROR4FREE.exe   (main executable)
-    dist/MIRROR4FREE/...                (bundled DLLs and data)
+    dist/MIRANCE/MIRANCE.exe   (main executable)
+    dist/MIRANCE/...                (bundled DLLs and data)
 """
 
 import PyInstaller.__main__
@@ -40,13 +40,13 @@ DEBUG_MODE = "--debug" in sys.argv
 
 
 def build():
-    """Build the MIRROR4FREE executable."""
+    """Build the MIRANCE executable."""
 
     args = [
         # Entry point: crash-handler wrapper
         os.path.join(PROJECT_ROOT, "run.py"),
 
-        "--name=MIRROR4FREE",
+        "--name=MIRANCE",
 
         # -- ONE-DIR mode (critical for native DLLs) --
         "--onedir",
@@ -104,30 +104,30 @@ def build():
 
         # Driver + recording + all imirror submodules
         "--hidden-import=imirror",
-        "--hidden-import=imirror.main",
-        "--hidden-import=imirror.config",
-        "--hidden-import=imirror.capture",
-        "--hidden-import=imirror.capture.base",
-        "--hidden-import=imirror.capture.stream",
-        "--hidden-import=imirror.capture.screenshot",
-        "--hidden-import=imirror.capture.recording",
-        "--hidden-import=imirror.decode",
-        "--hidden-import=imirror.decode.video",
-        "--hidden-import=imirror.decode.audio",
-        "--hidden-import=imirror.gui",
-        "--hidden-import=imirror.gui.main_window",
-        "--hidden-import=imirror.gui.overlay",
-        "--hidden-import=imirror.gui.styles",
-        "--hidden-import=imirror.render",
-        "--hidden-import=imirror.render.gl_renderer",
-        "--hidden-import=imirror.render.shaders",
-        "--hidden-import=imirror.usb",
-        "--hidden-import=imirror.usb.endpoint",
-        "--hidden-import=imirror.usb.device_manager",
-        "--hidden-import=imirror.usb.valeria",
-        "--hidden-import=imirror.usb.packets",
-        "--hidden-import=imirror.usb.driver_check",
-        "--hidden-import=imirror.usb.driver_installer",
+        "--hidden-import=mirance.main",
+        "--hidden-import=mirance.config",
+        "--hidden-import=mirance.capture",
+        "--hidden-import=mirance.capture.base",
+        "--hidden-import=mirance.capture.stream",
+        "--hidden-import=mirance.capture.screenshot",
+        "--hidden-import=mirance.capture.recording",
+        "--hidden-import=mirance.decode",
+        "--hidden-import=mirance.decode.video",
+        "--hidden-import=mirance.decode.audio",
+        "--hidden-import=mirance.gui",
+        "--hidden-import=mirance.gui.main_window",
+        "--hidden-import=mirance.gui.overlay",
+        "--hidden-import=mirance.gui.styles",
+        "--hidden-import=mirance.render",
+        "--hidden-import=mirance.render.gl_renderer",
+        "--hidden-import=mirance.render.shaders",
+        "--hidden-import=mirance.usb",
+        "--hidden-import=mirance.usb.endpoint",
+        "--hidden-import=mirance.usb.device_manager",
+        "--hidden-import=mirance.usb.valeria",
+        "--hidden-import=mirance.usb.packets",
+        "--hidden-import=mirance.usb.driver_check",
+        "--hidden-import=mirance.usb.driver_installer",
 
         # -- Collect packages with native DLLs --
         # CRITICAL: without these, the EXE crashes on import with missing DLL errors.
@@ -219,8 +219,8 @@ def build():
     mode_str = "DEBUG (console)" if DEBUG_MODE else "RELEASE (windowed)"
 
     print("=" * 60)
-    from imirror import __version__
-    print(f"Building MIRROR4FREE v{__version__}  [{mode_str}]")
+    from mirance import __version__
+    print(f"Building MIRANCE v{__version__}  [{mode_str}]")
     print("=" * 60)
     print(f"  Entry point : run.py")
     print(f"  Mode        : --onedir")
@@ -269,11 +269,11 @@ def build():
 
     PyInstaller.__main__.run(args)
 
-    exe_path = os.path.join(PROJECT_ROOT, "dist", "MIRROR4FREE", "MIRROR4FREE.exe")
+    exe_path = os.path.join(PROJECT_ROOT, "dist", "MIRANCE", "MIRANCE.exe")
     if os.path.exists(exe_path):
         # Calculate total bundle size (entire dist folder)
         total_size = 0
-        dist_dir = os.path.join(PROJECT_ROOT, "dist", "MIRROR4FREE")
+        dist_dir = os.path.join(PROJECT_ROOT, "dist", "MIRANCE")
         for dirpath, dirnames, filenames in os.walk(dist_dir):
             for f in filenames:
                 fp = os.path.join(dirpath, f)
@@ -292,7 +292,7 @@ def build():
         if DEBUG_MODE:
             print()
             print("  ** DEBUG BUILD — console window will stay open **")
-            print("  ** Run MIRROR4FREE.exe from a terminal to see errors **")
+            print("  ** Run MIRANCE.exe from a terminal to see errors **")
     else:
         print()
         print("[FAIL] Build may have failed -- executable not found at expected path")

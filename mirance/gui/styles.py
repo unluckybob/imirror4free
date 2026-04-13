@@ -1,5 +1,5 @@
 """
-Premium Dark Theme for MIRROR4FREE.
+Premium Dark Theme for MIRANCE.
 
 Based on Image 1 (icon) and Image 2 (GUI reference):
 - Dark black background with crimson/maroon accents

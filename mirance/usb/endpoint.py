@@ -14,7 +14,7 @@ and the Valeria protocol layer in valeria.py.
 On Windows, we use libusb-win32 (libusb0) — the same driver backend that
 AnyMiro uses. The device must have libusb0.sys bound (shown in Device Manager
 as "LIBUSB-WIN32 DEVICES" → service: libusb0). This is installed automatically
-by AnyMiro or via the MIRROR4FREE driver installer.
+by AnyMiro or via the MIRANCE driver installer.
 """
 
 import logging
@@ -148,7 +148,7 @@ class USBEndpoint:
                 logger.warning(
                     "No libusb backend found on Windows. "
                     "Ensure libusb-win32 is installed (AnyMiro installs it automatically). "
-                    "Run the MIRROR4FREE driver installer to set it up."
+                    "Run the MIRANCE driver installer to set it up."
                 )
                 return
 
@@ -286,7 +286,7 @@ class USBEndpoint:
             if "Access denied" in str(e) or "permission" in str(e).lower():
                 logger.error(
                     "Access denied — the libusb-win32 driver may not be installed. "
-                    "Install the mirror driver through the MIRROR4FREE app. "
+                    "Install the mirror driver through the MIRANCE app. "
                     "The device must appear under 'LIBUSB-WIN32 DEVICES' in Device Manager "
                     "with service 'libusb0'."
                 )

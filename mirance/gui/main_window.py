@@ -1,7 +1,7 @@
 """
 Main Application Window.
 
-The main GUI window for MIRROR4FREE. Handles:
+The main GUI window for MIRANCE. Handles:
 - Device detection and connection
 - Frame rendering via OpenGL
 - Recording controls (start/stop recording, screenshot)
@@ -33,13 +33,13 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QAction, QKeySequence, QIcon, QImage, QPixmap, QPainter, QBrush, QLinearGradient, QColor
 
-from imirror import __version__, __app_name__
-from imirror.config import config, CaptureBackendType, DecoderType, RecordingFormat
-from imirror.gui.styles import DARK_THEME, WAITING_SCREEN_STYLE, TOOLBAR_STYLE, SETTINGS_DIALOG_STYLE
-from imirror.gui.overlay import FPSOverlay
+from mirance import __version__, __app_name__
+from mirance.config import config, CaptureBackendType, DecoderType, RecordingFormat
+from mirance.gui.styles import DARK_THEME, WAITING_SCREEN_STYLE, TOOLBAR_STYLE, SETTINGS_DIALOG_STYLE
+from mirance.gui.overlay import FPSOverlay
 
 try:
-    from imirror.render.gl_renderer import GLRenderer, OPENGL_AVAILABLE
+    from mirance.render.gl_renderer import GLRenderer, OPENGL_AVAILABLE
 except ImportError:
     OPENGL_AVAILABLE = False
 
@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
 
         action_github = QAction("GitHub Repository", self)
         action_github.triggered.connect(
-            lambda: __import__("webbrowser").open("https://github.com/unluckybob/mirror4free"))
+            lambda: __import__("webbrowser").open("https://github.com/unluckybob/mirance"))
         help_menu.addAction(action_github)
 
     def _build_toolbar(self) -> None:
@@ -468,7 +468,7 @@ class MainWindow(QMainWindow):
                 return
 
         try:
-            from imirror.usb.device_manager import DeviceManager
+            from mirance.usb.device_manager import DeviceManager
             if self._device_manager is None:
                 self._device_manager = DeviceManager()
                 self._device_manager.start()
@@ -525,7 +525,7 @@ class MainWindow(QMainWindow):
     def _start_valeria_capture(self, udid: str) -> None:
         """Start Valeria stream capture."""
         try:
-            from imirror.capture.stream import ValeriaStreamCapture
+            from mirance.capture.stream import ValeriaStreamCapture
 
             capture = ValeriaStreamCapture()
             self._capture_backend = capture
@@ -576,7 +576,7 @@ class MainWindow(QMainWindow):
     def _start_screenshot_capture(self, udid: str) -> None:
         """Start screenshot capture (fallback)."""
         try:
-            from imirror.capture.screenshot import ScreenshotCapture
+            from mirance.capture.screenshot import ScreenshotCapture
 
             capture = ScreenshotCapture()
             self._capture_backend = capture
@@ -682,7 +682,7 @@ class MainWindow(QMainWindow):
     def _start_recording(self) -> None:
         """Start recording the mirror stream."""
         try:
-            from imirror.capture.recording import ScreenRecorder
+            from mirance.capture.recording import ScreenRecorder
 
             if self._recorder is None:
                 self._recorder = ScreenRecorder()
@@ -722,7 +722,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            from imirror.capture.recording import ScreenshotSaver
+            from mirance.capture.recording import ScreenshotSaver
 
             path = ScreenshotSaver.save_screenshot(self._current_frame)
             if path:
@@ -756,7 +756,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            from imirror.usb.driver_installer import full_driver_setup
+            from mirance.usb.driver_installer import full_driver_setup
             result = full_driver_setup()
 
             if result.success:
@@ -791,7 +791,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            from imirror.usb.driver_installer import uninstall_driver
+            from mirance.usb.driver_installer import uninstall_driver
             result = uninstall_driver()
 
             if result.success:
@@ -844,14 +844,14 @@ class MainWindow(QMainWindow):
         if error_type == "claim_failed":
             title = "Mirror Driver Issue"
             msg = (
-                "MIRROR4FREE couldn't claim the iPhone's AV streaming interface.\n\n"
+                "MIRANCE couldn't claim the iPhone's AV streaming interface.\n\n"
                 "This usually means the libusb-win32 mirror driver needs to be reinstalled.\n\n"
                 "Would you like to reinstall it now? (requires admin approval)"
             )
         else:
             title = "Mirror Driver Required"
             msg = (
-                "MIRROR4FREE needs a USB mirror driver to stream from your iPhone.\n\n"
+                "MIRANCE needs a USB mirror driver to stream from your iPhone.\n\n"
                 "\u2022 One-time setup (~10 seconds)\n"
                 "\u2022 Requires administrator approval (UAC prompt)\n"
                 "\u2022 You'll need to replug your iPhone after installation\n\n"
@@ -881,7 +881,7 @@ class MainWindow(QMainWindow):
     def _check_driver_status(self) -> None:
         """Check and display driver status."""
         try:
-            from imirror.usb.driver_installer import check_driver_status
+            from mirance.usb.driver_installer import check_driver_status
             status = check_driver_status()
 
             lines = [
@@ -901,7 +901,7 @@ class MainWindow(QMainWindow):
     def _run_diagnostic(self) -> None:
         """Run USB diagnostic."""
         try:
-            from imirror.usb.driver_check import run_diagnostic
+            from mirance.usb.driver_check import run_diagnostic
             QMessageBox.information(
                 self, "USB Diagnostic",
                 "Running diagnostic... Check the console/log for detailed output."
@@ -1001,7 +1001,7 @@ class MainWindow(QMainWindow):
             f"<p style='color: #8E8E93;'>Version {__version__}</p>"
             f"<p style='color: #FFFFFF;'>Free iPhone USB Screen Mirror for Windows</p>"
             f"<p style='color: #8E8E93;'>Full native resolution · Low latency · No watermarks</p>"
-            f"<p><a href='https://github.com/unluckybob/mirror4free' "
+            f"<p><a href='https://github.com/unluckybob/mirance' "
             f"style='color: #B5342B;'>GitHub Repository</a></p>"
             f"<p style='color: #636366;'>License: GPL-3.0</p>"
         )

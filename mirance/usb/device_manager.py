@@ -153,7 +153,7 @@ def run_startup_diagnostics() -> dict:
 
         # Check mirror driver status
         try:
-            from imirror.usb.driver_installer import check_driver_status
+            from mirance.usb.driver_installer import check_driver_status
             results["driver_status"] = check_driver_status()
         except ImportError:
             pass
@@ -349,7 +349,7 @@ class DeviceManager:
 
         try:
             import usb.core
-            from imirror.usb.endpoint import _find_libusb0_dll
+            from mirance.usb.endpoint import _find_libusb0_dll
 
             backend = None
             if platform.system() == "Windows":

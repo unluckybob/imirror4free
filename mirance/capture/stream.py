@@ -27,7 +27,7 @@ Streaming lifecycle:
     7. Clean shutdown (HPA0 + HPD0, release endpoints)
 
 Prerequisites:
-    - libusb-win32 mirror driver installed (auto-installed by MIRROR4FREE)
+    - libusb-win32 mirror driver installed (auto-installed by MIRANCE)
     - pyusb + libusb-package (bundled in requirements.txt)
 """
 
@@ -40,9 +40,9 @@ from collections import deque
 
 import numpy as np
 
-from imirror.capture.base import CaptureBackend, CapturedFrame
-from imirror.config import config
-from imirror.usb.packets import (
+from mirance.capture.base import CaptureBackend, CapturedFrame
+from mirance.config import config
+from mirance.usb.packets import (
     Magic, PacketType, Packet, VideoFrame, AudioSample,
     read_packet, build_ping,
 )
@@ -156,7 +156,7 @@ class ValeriaStreamCapture(CaptureBackend):
         - An Apple device is found on the USB bus AND accessible
         """
         try:
-            from imirror.usb.endpoint import USBEndpoint
+            from mirance.usb.endpoint import USBEndpoint
             endpoint = USBEndpoint()
             found = endpoint.find_iphone()
             if not found:
@@ -191,7 +191,7 @@ class ValeriaStreamCapture(CaptureBackend):
             return True, "Non-Windows platform — no driver needed", StreamError.GENERIC
 
         try:
-            from imirror.usb.driver_installer import check_driver_status
+            from mirance.usb.driver_installer import check_driver_status
             status = check_driver_status()
 
             if status.ready_to_stream:
@@ -237,7 +237,7 @@ class ValeriaStreamCapture(CaptureBackend):
             DriverInstallResult with success status and message.
         """
         try:
-            from imirror.usb.driver_installer import (
+            from mirance.usb.driver_installer import (
                 check_driver_status, full_driver_setup, DriverInstallResult
             )
             
@@ -351,7 +351,7 @@ class ValeriaStreamCapture(CaptureBackend):
             def _pre_init_audio():
                 try:
                     if config.audio_enabled:
-                        from imirror.decode.audio import AudioPlayer
+                        from mirance.decode.audio import AudioPlayer
                         self._audio = AudioPlayer(
                             sample_rate=config.audio_sample_rate,
                             channels=config.audio_channels,
@@ -381,13 +381,13 @@ class ValeriaStreamCapture(CaptureBackend):
                 return
 
             # Phase 2: Create protocol session
-            from imirror.usb.valeria import ValeriaSession
+            from mirance.usb.valeria import ValeriaSession
             self._session = ValeriaSession()
             self._session.on_video_frame(self._on_video_frame)
             self._session.on_audio_sample(self._on_audio_sample)
 
             # Phase 3: Initialize video decoder (configured after CVRP handshake)
-            from imirror.decode.video import VideoDecoder
+            from mirance.decode.video import VideoDecoder
             self._decoder = VideoDecoder()
 
             # Phase 4: Ensure audio is ready before entering the protocol loop.
@@ -417,7 +417,7 @@ class ValeriaStreamCapture(CaptureBackend):
 
         Returns True if USB is ready for protocol communication.
         """
-        from imirror.usb.endpoint import USBEndpoint
+        from mirance.usb.endpoint import USBEndpoint
 
         self._endpoint = USBEndpoint()
 
@@ -508,7 +508,7 @@ class ValeriaStreamCapture(CaptureBackend):
         # UsbMuxSession claims Interface 0, sends a plist Hello, and drains
         # the IN endpoint in a background thread throughout streaming.
         try:
-            from imirror.usb.usbmux import UsbMuxSession
+            from mirance.usb.usbmux import UsbMuxSession
             self._usbmux = UsbMuxSession(self._endpoint._dev)
             if self._usbmux.start():
                 logger.info(
@@ -883,7 +883,7 @@ class ValeriaStreamCapture(CaptureBackend):
 
             time.sleep(1.0)  # Brief pause for USB bus to settle
 
-            from imirror.usb.endpoint import USBEndpoint
+            from mirance.usb.endpoint import USBEndpoint
             self._endpoint = USBEndpoint()
 
             if not self._endpoint.find_iphone():

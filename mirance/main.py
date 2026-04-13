@@ -1,5 +1,5 @@
 """
-MIRROR4FREE — Entry Point.
+MIRANCE — Entry Point.
 
 A free, open-source USB screen mirroring tool for iPhone on Windows.
 Uses Apple's Valeria protocol for zero-latency H.264 streaming.
@@ -22,8 +22,8 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-from imirror import __version__, __app_name__
-from imirror.config import config, CaptureBackendType
+from mirance import __version__, __app_name__
+from mirance.config import config, CaptureBackendType
 
 
 def resource_path(relative_path: str) -> str:
@@ -124,7 +124,7 @@ def parse_args() -> argparse.Namespace:
 
 def cmd_install_driver() -> int:
     """Install the libusb-win32 mirror driver via CLI."""
-    from imirror.usb.driver_installer import full_driver_setup
+    from mirance.usb.driver_installer import full_driver_setup
     print(f"{__app_name__} — Mirror Driver Installer")
     print("=" * 50)
     result = full_driver_setup()
@@ -135,7 +135,7 @@ def cmd_install_driver() -> int:
 
 def cmd_uninstall_driver() -> int:
     """Uninstall the mirror driver via CLI."""
-    from imirror.usb.driver_installer import uninstall_driver
+    from mirance.usb.driver_installer import uninstall_driver
     print(f"{__app_name__} — Restore Original Driver")
     print("=" * 50)
     result = uninstall_driver()
@@ -146,7 +146,7 @@ def cmd_uninstall_driver() -> int:
 
 def cmd_check_driver() -> int:
     """Check driver status via CLI."""
-    from imirror.usb.driver_installer import check_driver_status
+    from mirance.usb.driver_installer import check_driver_status
     print(f"{__app_name__} — Driver Status")
     print("=" * 50)
     status = check_driver_status()
@@ -161,7 +161,7 @@ def cmd_check_driver() -> int:
 
 def cmd_diag() -> int:
     """Run comprehensive USB diagnostic via CLI."""
-    from imirror.usb.driver_check import run_diagnostic
+    from mirance.usb.driver_check import run_diagnostic
     return run_diagnostic()
 
 
@@ -201,7 +201,7 @@ def main() -> int:
     try:
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtGui import QIcon
-        from imirror.gui.main_window import MainWindow
+        from mirance.gui.main_window import MainWindow
 
         app = QApplication(sys.argv)
         app.setApplicationName(__app_name__)

@@ -22,7 +22,7 @@ from enum import Enum
 
 import numpy as np
 
-from imirror.config import config, DecoderType
+from mirance.config import config, DecoderType
 
 logger = logging.getLogger(__name__)
 

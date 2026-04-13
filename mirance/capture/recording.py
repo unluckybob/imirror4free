@@ -23,7 +23,7 @@ from enum import Enum
 
 import numpy as np
 
-from imirror.config import config
+from mirance.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class ScreenRecorder:
             if output_path is None:
                 ext = config.recording_format.value
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"MIRROR4FREE_{timestamp}.{ext}"
+                filename = f"MIRANCE_{timestamp}.{ext}"
                 os.makedirs(config.recording_output_dir, exist_ok=True)
                 output_path = os.path.join(config.recording_output_dir, filename)
 
@@ -310,7 +310,7 @@ class ScreenshotSaver:
             if output_path is None:
                 ext = config.screenshot_format
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                filename = f"MIRROR4FREE_{timestamp}.{ext}"
+                filename = f"MIRANCE_{timestamp}.{ext}"
                 os.makedirs(config.screenshot_output_dir, exist_ok=True)
                 output_path = os.path.join(config.screenshot_output_dir, filename)
 

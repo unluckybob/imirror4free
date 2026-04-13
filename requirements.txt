@@ -1,4 +1,4 @@
-# MIRROR4FREE — Dependencies
+# MIRANCE — Dependencies
 # Install: pip install -r requirements.txt
 
 # USB Communication

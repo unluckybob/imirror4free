@@ -3,16 +3,16 @@ import logging
 import usb.core
 import usb.util
 import time
-from imirror.usb.device import activate_qt_and_get_interface
-from imirror.usb.valeria import ValeriaEngine
-from imirror.usb.stream import StreamManager
+from mirance.usb.device import activate_qt_and_get_interface
+from mirance.usb.valeria import ValeriaEngine
+from mirance.usb.stream import StreamManager
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 def main():
     try:
         logger = logging.getLogger(__name__)
-        logger.info("🍎 Starting MIRROR4FREE v2.4 USB Mirroring...")
+        logger.info("🍎 Starting MIRANCE v2.4 USB Mirroring...")
 
         dev, cfg, intf = activate_qt_and_get_interface()
 

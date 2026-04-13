@@ -5,11 +5,11 @@ with open("imirror/__init__.py") as f:
     version = re.search(r'__version__\s*=\s*"(.+)"', f.read()).group(1)
 
 setup(
-    name="mirror4free",
+    name="mirance",
     version=version,
     description="The definitive free iPhone USB screen mirroring tool for Windows",
     author="unluckybob",
-    url="https://github.com/unluckybob/MIRROR4FREE",
+    url="https://github.com/unluckybob/MIRANCE",
     packages=find_packages(),
     python_requires=">=3.10",
     install_requires=[
@@ -25,7 +25,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "imirror=imirror.main:main",
+            "imirror=mirance.main:main",
         ],
     },
 )

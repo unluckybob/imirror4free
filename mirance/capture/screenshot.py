@@ -24,8 +24,8 @@ from typing import Optional
 
 import numpy as np
 
-from imirror.capture.base import CaptureBackend, CapturedFrame
-from imirror.config import config
+from mirance.capture.base import CaptureBackend, CapturedFrame
+from mirance.config import config
 
 logger = logging.getLogger(__name__)
 
