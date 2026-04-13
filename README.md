@@ -82,7 +82,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # Run
-python -m imirror
+python -m mirance
 ```
 
 ### First-Time Setup: Install Mirror Driver
@@ -93,7 +93,7 @@ The Valeria stream backend requires a one-time driver installation:
 
 **Option B: CLI:**
 ```bash
-python -m imirror --install-driver
+python -m mirance --install-driver
 ```
 
 After installing, unplug and replug your iPhone. The app will auto-detect and start streaming.
@@ -119,32 +119,32 @@ Double-click `MIRANCE.exe` — no installation required.
 
 ```bash
 # Launch the GUI
-python -m imirror
+python -m mirance
 
 # Force a specific capture backend
-python -m imirror --backend valeria
-python -m imirror --backend screenshot
+python -m mirance --backend valeria
+python -m mirance --backend screenshot
 
 # Driver management
-python -m imirror --install-driver     # Install libusb-win32 mirror driver
-python -m imirror --uninstall-driver   # Restore Apple's original driver
-python -m imirror --check-driver       # Check driver status
+python -m mirance --install-driver     # Install libusb-win32 mirror driver
+python -m mirance --uninstall-driver   # Restore Apple's original driver
+python -m mirance --check-driver       # Check driver status
 
 # Diagnostics
-python -m imirror --diag               # Full USB diagnostic
+python -m mirance --diag               # Full USB diagnostic
 
 # Display options
-python -m imirror --fps                # Show FPS overlay
-python -m imirror --fullscreen         # Start fullscreen
-python -m imirror --always-on-top      # Window stays on top
-python -m imirror --verbose            # Debug logging
+python -m mirance --fps                # Show FPS overlay
+python -m mirance --fullscreen         # Start fullscreen
+python -m mirance --always-on-top      # Window stays on top
+python -m mirance --verbose            # Debug logging
 ```
 
 ## 📂 Project Structure
 
 ```
 mirance/
-├── imirror/
+├── mirance/
 │   ├── __init__.py               # Version, metadata
 │   ├── main.py                   # Entry point + CLI
 │   ├── config.py                 # All settings (persistent)

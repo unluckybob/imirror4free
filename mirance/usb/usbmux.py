@@ -16,7 +16,7 @@ iPhone's state machine:
 References:
   - libimobiledevice usbmuxd protocol (https://github.com/libimobiledevice/usbmuxd)
   - chotgpt/quicktime_video_hack_windows (custom usbmuxd.exe for Windows)
-  - Root cause analysis: IMIRROR_POST_PING_DIAGNOSIS.md
+  - Root cause analysis: MIRANCE_POST_PING_DIAGNOSIS.md
 """
 
 import logging

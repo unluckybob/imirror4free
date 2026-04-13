@@ -19,9 +19,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     char *lastSlash = strrchr(exeDir, '\\');
     if (lastSlash) *(lastSlash + 1) = '\0';
 
-    /* Build command: python\pythonw.exe -m imirror.main */
+    /* Build command: python\pythonw.exe -m mirance.main */
     snprintf(cmdLine, sizeof(cmdLine),
-             "\"%spython\\pythonw.exe\" -m imirror.main", exeDir);
+             "\"%spython\\pythonw.exe\" -m mirance.main", exeDir);
 
     /* Set working directory to app root */
     SetCurrentDirectoryA(exeDir);
@@ -34,7 +34,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     if (!CreateProcessA(NULL, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         /* If pythonw.exe fails, try python.exe so user sees the error */
         snprintf(cmdLine, sizeof(cmdLine),
-                 "\"%spython\\python.exe\" -m imirror.main", exeDir);
+                 "\"%spython\\python.exe\" -m mirance.main", exeDir);
         CreateProcessA(NULL, cmdLine, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
     }
 
