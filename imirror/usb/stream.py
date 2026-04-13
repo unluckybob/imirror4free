@@ -9,10 +9,11 @@ from .valeria import ValeriaEngine
 logger = logging.getLogger(__name__)
 
 class StreamManager:
-    def __init__(self, dev, intf, ep_in, engine: ValeriaEngine):
+    def __init__(self, dev, intf, ep_in, ep_out, engine: ValeriaEngine):
         self.dev = dev
         self.intf = intf
         self.ep_in = ep_in
+        self.ep_out = ep_out
         self.engine = engine
         self.running = False
         self.buffer = b""
@@ -29,7 +30,7 @@ class StreamManager:
 
     def _write_packet(self, pkt: bytes):
         """Sends packet with 4-byte LE length prefix."""
-        self.ep_in.write(struct.pack("<I", len(pkt)) + pkt)
+        self.ep_out.write(struct.pack("<I", len(pkt)) + pkt)
 
     def _read_loop(self):
         try:
