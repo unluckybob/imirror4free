@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 def main():
     try:
         logger = logging.getLogger(__name__)
-        logger.info("🍎 Starting IMIRROR4FREE v2.4 USB Mirroring...")
+        logger.info("🍎 Starting MIRROR4FREE v2.4 USB Mirroring...")
 
         dev, cfg, intf = activate_qt_and_get_interface()
 

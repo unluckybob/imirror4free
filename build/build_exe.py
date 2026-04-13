@@ -1,5 +1,5 @@
 """
-PyInstaller Build Script for IMIRROR4FREE.
+PyInstaller Build Script for MIRROR4FREE.
 
 Creates a ONE-DIR Windows executable bundle with all dependencies.
 Uses --onedir (not --onefile) because native DLL packages like
@@ -15,8 +15,8 @@ Usage:
     python build/build_exe.py --debug    # Debug build (console visible for errors)
 
 Output:
-    dist/IMIRROR4FREE/IMIRROR4FREE.exe   (main executable)
-    dist/IMIRROR4FREE/...                (bundled DLLs and data)
+    dist/MIRROR4FREE/MIRROR4FREE.exe   (main executable)
+    dist/MIRROR4FREE/...                (bundled DLLs and data)
 """
 
 import PyInstaller.__main__
@@ -40,13 +40,13 @@ DEBUG_MODE = "--debug" in sys.argv
 
 
 def build():
-    """Build the IMIRROR4FREE executable."""
+    """Build the MIRROR4FREE executable."""
 
     args = [
         # Entry point: crash-handler wrapper
         os.path.join(PROJECT_ROOT, "run.py"),
 
-        "--name=IMIRROR4FREE",
+        "--name=MIRROR4FREE",
 
         # -- ONE-DIR mode (critical for native DLLs) --
         "--onedir",
@@ -220,7 +220,7 @@ def build():
 
     print("=" * 60)
     from imirror import __version__
-    print(f"Building IMIRROR4FREE v{__version__}  [{mode_str}]")
+    print(f"Building MIRROR4FREE v{__version__}  [{mode_str}]")
     print("=" * 60)
     print(f"  Entry point : run.py")
     print(f"  Mode        : --onedir")
@@ -269,11 +269,11 @@ def build():
 
     PyInstaller.__main__.run(args)
 
-    exe_path = os.path.join(PROJECT_ROOT, "dist", "IMIRROR4FREE", "IMIRROR4FREE.exe")
+    exe_path = os.path.join(PROJECT_ROOT, "dist", "MIRROR4FREE", "MIRROR4FREE.exe")
     if os.path.exists(exe_path):
         # Calculate total bundle size (entire dist folder)
         total_size = 0
-        dist_dir = os.path.join(PROJECT_ROOT, "dist", "IMIRROR4FREE")
+        dist_dir = os.path.join(PROJECT_ROOT, "dist", "MIRROR4FREE")
         for dirpath, dirnames, filenames in os.walk(dist_dir):
             for f in filenames:
                 fp = os.path.join(dirpath, f)
@@ -292,7 +292,7 @@ def build():
         if DEBUG_MODE:
             print()
             print("  ** DEBUG BUILD — console window will stay open **")
-            print("  ** Run IMIRROR4FREE.exe from a terminal to see errors **")
+            print("  ** Run MIRROR4FREE.exe from a terminal to see errors **")
     else:
         print()
         print("[FAIL] Build may have failed -- executable not found at expected path")

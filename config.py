@@ -1,4 +1,4 @@
-"""imirror4free - v2.4 Protocol Configuration (pcap-confirmed)"""
+"""mirror4free - v2.4 Protocol Configuration (pcap-confirmed)"""
 
 # ─── USB Layer ─────────────────────────────────────────────────────
 USB_READ_CHUNK_SIZE = 4096          # Low latency, OSS-confirmed

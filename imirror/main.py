@@ -1,5 +1,5 @@
 """
-IMIRROR4FREE — Entry Point.
+MIRROR4FREE — Entry Point.
 
 A free, open-source USB screen mirroring tool for iPhone on Windows.
 Uses Apple's Valeria protocol for zero-latency H.264 streaming.

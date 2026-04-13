@@ -62,7 +62,7 @@ def _hello_packet() -> bytes:
         "BundleID": "org.libimobiledevice.usbmuxd",
         "ClientVersionString": "usbmuxd-374.70",
         "MessageType": "Hello",
-        "ProgName": "imirror4free",
+        "ProgName": "mirror4free",
         "kLibUSBMuxVersion": 3,
     })
 

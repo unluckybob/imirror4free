@@ -27,7 +27,7 @@ Streaming lifecycle:
     7. Clean shutdown (HPA0 + HPD0, release endpoints)
 
 Prerequisites:
-    - libusb-win32 mirror driver installed (auto-installed by IMIRROR4FREE)
+    - libusb-win32 mirror driver installed (auto-installed by MIRROR4FREE)
     - pyusb + libusb-package (bundled in requirements.txt)
 """
 

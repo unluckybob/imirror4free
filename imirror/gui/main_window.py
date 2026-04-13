@@ -1,7 +1,7 @@
 """
 Main Application Window.
 
-The main GUI window for IMIRROR4FREE. Handles:
+The main GUI window for MIRROR4FREE. Handles:
 - Device detection and connection
 - Frame rendering via OpenGL
 - Recording controls (start/stop recording, screenshot)
@@ -9,6 +9,9 @@ The main GUI window for IMIRROR4FREE. Handles:
 - Keyboard shortcuts
 - Driver installation UI
 - Status bar with connection info
+
+Design: Premium dark theme with crimson accent, mirroring iOS aesthetics.
+The app icon is displayed as a splash/intro graphic on startup.
 """
 
 import logging
@@ -25,10 +28,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QStackedWidget, QStatusBar, QToolBar,
     QMessageBox, QFileDialog, QSlider, QDialog, QFormLayout,
     QComboBox, QCheckBox, QGroupBox, QSpinBox, QApplication,
-    QSizePolicy, QMenu,
+    QSizePolicy, QMenu, QFrame, QSplashScreen,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
-from PyQt6.QtGui import QAction, QKeySequence, QIcon, QImage, QPixmap
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QImage, QPixmap, QPainter, QBrush, QLinearGradient, QColor
 
 from imirror import __version__, __app_name__
 from imirror.config import config, CaptureBackendType, DecoderType, RecordingFormat
@@ -41,6 +44,32 @@ except ImportError:
     OPENGL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+class SplashScreen(QSplashScreen):
+    """Premium splash screen showing app icon with fade animation."""
+    
+    def __init__(self):
+        # Get icon path
+        icon_path = self._resource_path(os.path.join("assets", "icon.png"))
+        
+        if os.path.exists(icon_path):
+            pixmap = QPixmap(icon_path)
+        else:
+            # Create placeholder pixmap
+            pixmap = QPixmap(400, 300)
+            pixmap.fill(QColor("#1C1C1E"))
+        
+        super().__init__(pixmap)
+        self.setWindowFlag(Qt.WindowFlag.FramelessWindowHint)
+        self.setWindowFlag(Qt.WindowFlag.WindowStaysOnTopHint)
+        
+    def _resource_path(self, path: str) -> str:
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, path)
 
 
 class MainWindow(QMainWindow):
@@ -221,7 +250,7 @@ class MainWindow(QMainWindow):
 
         action_github = QAction("GitHub Repository", self)
         action_github.triggered.connect(
-            lambda: __import__("webbrowser").open("https://github.com/unluckybob/imirror4free"))
+            lambda: __import__("webbrowser").open("https://github.com/unluckybob/mirror4free"))
         help_menu.addAction(action_github)
 
     def _build_toolbar(self) -> None:
@@ -815,14 +844,14 @@ class MainWindow(QMainWindow):
         if error_type == "claim_failed":
             title = "Mirror Driver Issue"
             msg = (
-                "IMIRROR4FREE couldn't claim the iPhone's AV streaming interface.\n\n"
+                "MIRROR4FREE couldn't claim the iPhone's AV streaming interface.\n\n"
                 "This usually means the libusb-win32 mirror driver needs to be reinstalled.\n\n"
                 "Would you like to reinstall it now? (requires admin approval)"
             )
         else:
             title = "Mirror Driver Required"
             msg = (
-                "IMIRROR4FREE needs a USB mirror driver to stream from your iPhone.\n\n"
+                "MIRROR4FREE needs a USB mirror driver to stream from your iPhone.\n\n"
                 "\u2022 One-time setup (~10 seconds)\n"
                 "\u2022 Requires administrator approval (UAC prompt)\n"
                 "\u2022 You'll need to replug your iPhone after installation\n\n"
@@ -972,7 +1001,7 @@ class MainWindow(QMainWindow):
             f"<p style='color: #8E8E93;'>Version {__version__}</p>"
             f"<p style='color: #FFFFFF;'>Free iPhone USB Screen Mirror for Windows</p>"
             f"<p style='color: #8E8E93;'>Full native resolution · Low latency · No watermarks</p>"
-            f"<p><a href='https://github.com/unluckybob/imirror4free' "
+            f"<p><a href='https://github.com/unluckybob/mirror4free' "
             f"style='color: #B5342B;'>GitHub Repository</a></p>"
             f"<p style='color: #636366;'>License: GPL-3.0</p>"
         )

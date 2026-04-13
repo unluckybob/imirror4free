@@ -10,7 +10,7 @@ Provides comprehensive diagnostics for the USB driver situation:
 
 On Windows, the iPhone must be bound to libusb0.sys (libusb-win32),
 visible in Device Manager under "LIBUSB-WIN32 DEVICES" with service "libusb0".
-This is installed automatically by AnyMiro or the IMIRROR4FREE driver installer.
+This is installed automatically by AnyMiro or the MIRROR4FREE driver installer.
 
 Usage:
     python -m imirror.usb.driver_check
@@ -76,7 +76,7 @@ class DriverCheckResult:
         """Human-readable summary of the check results."""
         lines = []
         lines.append("=" * 60)
-        lines.append("IMIRROR4FREE — USB Driver Diagnostic")
+        lines.append("MIRROR4FREE — USB Driver Diagnostic")
         lines.append("=" * 60)
         lines.append(f"Platform: {self.platform}")
         lines.append(f"pyusb installed: {'[OK]' if self.pyusb_available else '[FAIL]'}")
@@ -129,7 +129,7 @@ class DriverCheckResult:
             lines.append("   Run: pip install pyusb")
         elif not self.libusb_backend:
             lines.append("[FAIL] RESULT: No libusb backend available")
-            lines.append("   Install libusb-win32 via AnyMiro or IMIRROR4FREE driver installer.")
+            lines.append("   Install libusb-win32 via AnyMiro or MIRROR4FREE driver installer.")
         elif not self.apple_device_found:
             lines.append("[FAIL] RESULT: No iPhone found on USB")
             lines.append("   Make sure your iPhone is connected via USB cable.")
@@ -193,7 +193,7 @@ def check_usb_drivers() -> DriverCheckResult:
         else:
             result.errors.append(
                 "No libusb backend found. "
-                "Install libusb-win32 (via AnyMiro or IMIRROR4FREE driver installer) "
+                "Install libusb-win32 (via AnyMiro or MIRROR4FREE driver installer) "
                 "or run: pip install libusb-package"
             )
             return result

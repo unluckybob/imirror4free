@@ -18,56 +18,56 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Create output directory
-        run: mkdir dist\IMIRROR4FREE
+        run: mkdir dist\MIRROR4FREE
 
       - name: Download Python 3.12 Embeddable
         shell: pwsh
         run: |
           $url = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip"
           Invoke-WebRequest -Uri $url -OutFile python-embed.zip
-          Expand-Archive python-embed.zip -DestinationPath dist\IMIRROR4FREE\python
+          Expand-Archive python-embed.zip -DestinationPath dist\MIRROR4FREE\python
           Write-Host "Python embeddable ready"
 
       - name: Configure Python paths
         shell: pwsh
         run: |
           $lines = @("python312.zip", ".", "..", "Lib\site-packages", "import site")
-          $lines | Set-Content "dist\IMIRROR4FREE\python\python312._pth"
-          Get-Content "dist\IMIRROR4FREE\python\python312._pth"
+          $lines | Set-Content "dist\MIRROR4FREE\python\python312._pth"
+          Get-Content "dist\MIRROR4FREE\python\python312._pth"
 
       - name: Install pip
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile get-pip.py
-          & dist\IMIRROR4FREE\python\python.exe get-pip.py --no-warn-script-location
+          & dist\MIRROR4FREE\python\python.exe get-pip.py --no-warn-script-location
           if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
       - name: Install dependencies
         shell: pwsh
         run: |
-          & dist\IMIRROR4FREE\python\python.exe -m pip install setuptools wheel --no-warn-script-location
-          & dist\IMIRROR4FREE\python\python.exe -m pip install --prefer-binary -r requirements.txt --no-warn-script-location
+          & dist\MIRROR4FREE\python\python.exe -m pip install setuptools wheel --no-warn-script-location
+          & dist\MIRROR4FREE\python\python.exe -m pip install --prefer-binary -r requirements.txt --no-warn-script-location
           if ($LASTEXITCODE -ne 0) { throw "dependencies install failed" }
 
       - name: Copy source code
         shell: pwsh
         run: |
           # Core Python modules (root level)
-          Copy-Item config.py dist\IMIRROR4FREE\config.py
-          Copy-Item main.py dist\IMIRROR4FREE\main.py
-          Copy-Item run.py dist\IMIRROR4FREE\run.py
-          Copy-Item setup.py dist\IMIRROR4FREE\setup.py
+          Copy-Item config.py dist\MIRROR4FREE\config.py
+          Copy-Item main.py dist\MIRROR4FREE\main.py
+          Copy-Item run.py dist\MIRROR4FREE\run.py
+          Copy-Item setup.py dist\MIRROR4FREE\setup.py
           # imirror package
-          Copy-Item -Recurse imirror dist\IMIRROR4FREE\imirror
+          Copy-Item -Recurse imirror dist\MIRROR4FREE\imirror
 
       - name: Copy assets
         shell: pwsh
-        run: Copy-Item -Recurse assets dist\IMIRROR4FREE\assets
+        run: Copy-Item -Recurse assets dist\MIRROR4FREE\assets
 
       - name: Compile native launcher
         shell: pwsh
         run: |
-          cl.exe /nologo /O2 /Fe:dist\IMIRROR4FREE\IMIRROR4FREE.exe build\launcher.c kernel32.lib
+          cl.exe /nologo /O2 /Fe:dist\MIRROR4FREE\MIRROR4FREE.exe build\launcher.c kernel32.lib
           if ($LASTEXITCODE -ne 0) { throw "launcher compile failed" }
 
       - name: Create debug launcher
@@ -75,16 +75,16 @@ jobs:
         run: |
           # Debug launcher needs proper path setup
           $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); exec('from imirror.main import main; main()')`"`r`npause"
-          [System.IO.File]::WriteAllText("dist\IMIRROR4FREE\debug.bat", $bat)
+          [System.IO.File]::WriteAllText("dist\MIRROR4FREE\debug.bat", $bat)
 
       - name: Verify build
         shell: pwsh
         run: |
-          Get-ChildItem dist\IMIRROR4FREE -Depth 0 | Format-Table Name, Length
-          $sig = Get-AuthenticodeSignature "dist\IMIRROR4FREE\python\python312.dll"
+          Get-ChildItem dist\MIRROR4FREE -Depth 0 | Format-Table Name, Length
+          $sig = Get-AuthenticodeSignature "dist\MIRROR4FREE\python\python312.dll"
           Write-Host "DLL sig: $($sig.Status)"
           # Import path needs imirror package in proper location
-          Push-Location dist\IMIRROR4FREE
+          Push-Location dist\MIRROR4FREE
           & .\python\python.exe -c "import sys; sys.path.insert(0, '.'); import imirror; print('v' + imirror.__version__ + ' OK')"
           Pop-Location
 
@@ -101,11 +101,11 @@ jobs:
       - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
-          name: IMIRROR4FREE-Setup
-          path: dist\IMIRROR4FREE-Setup.exe
+          name: MIRROR4FREE-Setup
+          path: dist\MIRROR4FREE-Setup.exe
 
       - name: Upload Portable
         uses: actions/upload-artifact@v4
         with:
-          name: IMIRROR4FREE-Portable
-          path: dist\IMIRROR4FREE\
+          name: MIRROR4FREE-Portable
+          path: dist\MIRROR4FREE\

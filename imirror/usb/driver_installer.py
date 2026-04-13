@@ -5,7 +5,7 @@ Installs the libusb-win32 driver for the iPhone so PyUSB can access it
 for Valeria protocol communication — exactly what AnyMiro does.
 
 This installs a libusb-win32 "mirror driver" on first run.
-After installation, IMIRROR4FREE can send the USB control transfer to enable
+After installation, MIRROR4FREE can send the USB control transfer to enable
 QT Configuration 5 (Valeria AV streaming) and communicate with the
 H.264 video + PCM audio endpoints.
 
@@ -133,7 +133,7 @@ def get_driver_dir() -> str:
     # Try app data directory first
     appdata = os.environ.get("LOCALAPPDATA", "")
     if appdata:
-        driver_dir = os.path.join(appdata, "IMIRROR4FREE", DRIVER_DIR_NAME)
+        driver_dir = os.path.join(appdata, "MIRROR4FREE", DRIVER_DIR_NAME)
     else:
         driver_dir = os.path.join(tempfile.gettempdir(), DRIVER_DIR_NAME)
 
@@ -326,7 +326,7 @@ def generate_libusb0_inf(
     # Primary hardware ID — matches the specific iPhone model
     hw_id = f"USB\\VID_{APPLE_VID:04X}&PID_{pid:04X}"
 
-    inf_content = f"""; iMirror4Free - libusb-win32 driver for iPhone AV Interface
+    inf_content = f"""; Mirror4Free - libusb-win32 driver for iPhone AV Interface
 ; Copyright (c) 2010 libusb-win32 (GNU LGPL)
 [Strings]
 DeviceName  = "iPhone (Composite Parent)"
@@ -505,14 +505,14 @@ def create_certificate_and_sign(inf_path: str) -> bool:
     """
     output_dir = os.path.dirname(inf_path)
     cat_path = os.path.join(output_dir, "imirror_mirror.cat")
-    cert_name = "IMIRROR4FREE Mirror Driver"
+    cert_name = "MIRROR4FREE Mirror Driver"
 
     try:
         # Step 1: Create self-signed code signing certificate
         ps_create_cert = f"""
 $ErrorActionPreference = 'Stop'
 
-# Remove any old IMIRROR4FREE certs
+# Remove any old MIRROR4FREE certs
 Get-ChildItem Cert:\\\\CurrentUser\\\\My | Where-Object {{ $_.Subject -eq 'CN={cert_name}' }} | Remove-Item -Force
 
 # Create new self-signed code signing cert
@@ -777,7 +777,7 @@ sys.path.insert(0, r"{os.path.dirname(os.path.abspath(__file__))}")
 print("Creating self-signed certificate...")
 cert_result = subprocess.run(
     ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", """
-$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=IMIRROR4FREE Mirror Driver' -CertStoreLocation 'Cert:\\\\\\\\CurrentUser\\\\\\\\My' -NotAfter (Get-Date).AddYears(10) -HashAlgorithm SHA256
+$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=MIRROR4FREE Mirror Driver' -CertStoreLocation 'Cert:\\\\\\\\CurrentUser\\\\\\\\My' -NotAfter (Get-Date).AddYears(10) -HashAlgorithm SHA256
 $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
 $rootStore.Open('ReadWrite')
 $rootStore.Add($cert)
@@ -881,7 +881,7 @@ def _install_via_pnputil(inf_path: str) -> DriverInstallResult:
                     True,
                     "Mirror driver installed! Windows needs to restart to activate "
                     "the new driver (the Apple USB service is currently in use). "
-                    "Please save your work and restart your PC, then reopen iMirror4Free.",
+                    "Please save your work and restart your PC, then reopen Mirror4Free.",
                     needs_replug=False,
                     needs_restart=True,
                 )
@@ -914,7 +914,7 @@ def _install_via_pnputil(inf_path: str) -> DriverInstallResult:
 
 
 def uninstall_driver() -> DriverInstallResult:
-    """Remove the IMIRROR4FREE mirror driver and restore Apple's original driver.
+    """Remove the MIRROR4FREE mirror driver and restore Apple's original driver.
 
     Steps:
     1. Remove our OEM INF from the driver store
@@ -938,7 +938,7 @@ def uninstall_driver() -> DriverInstallResult:
             return DriverInstallResult(
                 False,
                 "Administrator privileges required to uninstall the driver. "
-                "Please run IMIRROR4FREE as administrator."
+                "Please run MIRROR4FREE as administrator."
             )
         except Exception:
             pass
@@ -984,7 +984,7 @@ def uninstall_driver() -> DriverInstallResult:
 
 
 def _find_our_oem_inf() -> Optional[str]:
-    """Scan installed drivers to find our IMIRROR4FREE driver."""
+    """Scan installed drivers to find our MIRROR4FREE driver."""
     try:
         result = subprocess.run(
             ["pnputil", "/enum-drivers"],
@@ -1000,7 +1000,7 @@ def _find_our_oem_inf() -> Optional[str]:
                 match = re.search(r"(oem\d+\.inf)", line, re.IGNORECASE)
                 if match:
                     current_oem = match.group(1)
-            elif "IMIRROR4FREE" in line.upper() and current_oem:
+            elif "MIRROR4FREE" in line.upper() and current_oem:
                 return current_oem
 
     except Exception as e:
@@ -1052,7 +1052,7 @@ def check_driver_status() -> DriverStatus:
 
     Checks:
     - Is an iPhone detected on USB?
-    - Is the IMIRROR4FREE driver installed?
+    - Is the MIRROR4FREE driver installed?
     - Can libusb access the iPhone?
     - Is QT configuration already active?
 
@@ -1194,7 +1194,7 @@ def full_driver_setup() -> DriverInstallResult:
         return DriverInstallResult(True, "No driver installation needed on this platform")
 
     logger.info("=" * 50)
-    logger.info("IMIRROR4FREE Mirror Driver Setup")
+    logger.info("MIRROR4FREE Mirror Driver Setup")
     logger.info("=" * 50)
 
     # Check current status
@@ -1233,7 +1233,7 @@ if __name__ == "__main__":
     )
 
     import argparse
-    parser = argparse.ArgumentParser(description="IMIRROR4FREE Mirror Driver Installer")
+    parser = argparse.ArgumentParser(description="MIRROR4FREE Mirror Driver Installer")
     parser.add_argument("--install", action="store_true", help="Install the mirror driver")
     parser.add_argument("--uninstall", action="store_true", help="Remove the mirror driver")
     parser.add_argument("--status", action="store_true", help="Check driver status")

@@ -1,1 +1,1 @@
-"""GUI components for IMIRROR4FREE."""
+"""GUI components for MIRROR4FREE."""

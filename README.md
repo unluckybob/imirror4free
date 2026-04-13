@@ -1,4 +1,4 @@
-# IMIRROR4FREE <img src="assets/icon.png" width="32" alt="iMirror4Free">
+# MIRROR4FREE <img src="assets/icon.png" width="32" alt="Mirror4Free">
 
 **The definitive free iPhone USB screen mirroring tool for Windows.**
 
@@ -8,7 +8,7 @@ Full native resolution • Low latency • GPU-accelerated • No watermarks •
 
 ## 🎯 What is this?
 
-IMIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free. It uses Apple's Valeria protocol (the same technology behind QuickTime) to stream your iPhone's HEVC video directly over USB at up to 60 FPS.
+MIRROR4FREE mirrors your iPhone screen to your Windows PC over USB — for free. It uses Apple's Valeria protocol (the same technology behind QuickTime) to stream your iPhone's HEVC video directly over USB at up to 60 FPS.
 
 **No companion app on iPhone.** No WiFi. No cloud. Just plug in your USB cable and go.
 
@@ -39,7 +39,7 @@ iPhone (USB)
     │         │
     ├─── libusb-win32 Driver (one-time install, replaces Apple's driver on Interface 2)
     │         │
-    │    IMIRROR4FREE
+    │    MIRROR4FREE
     │    ├── Valeria Protocol Handler (handshake, FEED/EAT!/NEED packets)
     │    ├── H.264 Decoder (D3D11VA/DXVA2 GPU or FFmpeg software)
     │    ├── PCM Audio Player (48kHz stereo via sounddevice)
@@ -71,8 +71,8 @@ The app auto-selects the best available backend.
 
 ```bash
 # Clone the repo
-git clone https://github.com/unluckybob/imirror4free.git
-cd imirror4free
+git clone https://github.com/unluckybob/mirror4free.git
+cd mirror4free
 
 # Create virtual environment
 python -m venv venv
@@ -100,8 +100,8 @@ After installing, unplug and replug your iPhone. The app will auto-detect and st
 
 ### From Release (.exe)
 
-Download the latest release from the [Releases](https://github.com/unluckybob/imirror4free/releases) page.
-Double-click `IMIRROR4FREE.exe` — no installation required.
+Download the latest release from the [Releases](https://github.com/unluckybob/mirror4free/releases) page.
+Double-click `MIRROR4FREE.exe` — no installation required.
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -143,7 +143,7 @@ python -m imirror --verbose            # Debug logging
 ## 📂 Project Structure
 
 ```
-imirror4free/
+mirror4free/
 ├── imirror/
 │   ├── __init__.py               # Version, metadata
 │   ├── main.py                   # Entry point + CLI
@@ -177,7 +177,7 @@ imirror4free/
 
 ### The Valeria Protocol
 
-IMIRROR4FREE uses Apple's proprietary Valeria protocol — the same protocol QuickTime uses to mirror iPhones over USB on macOS. Here's how it works:
+MIRROR4FREE uses Apple's proprietary Valeria protocol — the same protocol QuickTime uses to mirror iPhones over USB on macOS. Here's how it works:
 
 1. **USB Configuration Switch**: Send a USB control transfer to switch the iPhone to Configuration 5, which exposes the QT AV interface (SubClass 0x2A)
 2. **PING Handshake**: Exchange PING packets to establish the session
@@ -230,4 +230,4 @@ Built on the shoulders of:
 
 ---
 
-**IMIRROR4FREE** — because screen mirroring should be free. <img src="assets/icon.png" width="20" alt="iMirror4Free">
+**MIRROR4FREE** — because screen mirroring should be free. <img src="assets/icon.png" width="20" alt="Mirror4Free">
