@@ -54,7 +54,7 @@ def build_rply(correlation_id: bytes, value: int) -> bytes:
 def build_time_reply(correlation_id: bytes, value_ns: int) -> bytes:
     """v2.4 §A8: 44-byte TIME reply with CMTime (flags=0)"""
     # CMTime: value(8) + timescale(4) + flags(4) + epoch(8)
-    cmtime = struct.pack("<QIIQ", value_ns, 1_000_000_000, 0, 0)  # flags=0
+    cmtime = struct.pack("<QIIQ", value_ns, 1_000_000_000, 0, 0)  # flags=0, NOT 1
     return struct.pack("<I4s8sI", 44, Magic.RPLY, correlation_id, 0) + cmtime
 
 def build_afmt_rply(connection_id: bytes, tag: bytes) -> bytes:
@@ -139,7 +139,7 @@ def avcc_to_annexb(avcc_ bytes) -> Optional[bytes]:
     out = bytearray()
     pos = 0
     while pos + 4 <= len(avcc_data):
-        nalu_len = struct.unpack_from(">I", avcc_data, pos)[0]
+        nalu_len = struct.unpack_from(">I", avcc_data, pos)[0]  # Note the ">"
         pos += 4
         if nalu_len < 1 or pos + nalu_len > len(avcc_data):
             break
