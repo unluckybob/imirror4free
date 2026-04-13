@@ -72,7 +72,12 @@ class StreamManager:
                 sub = payload[16:20]
                 corr = payload[8:16]
                 reply = self.engine.handle_sync(sub, corr, payload)
-                if reply: self._write_packet(reply)
+                if reply: 
+                    self._write_packet(reply)
+                    # v2.4: Send any pending HPA1 after CWPA-RPLY
+                    pending = self.engine.get_pending_hpa1()
+                    if pending:
+                        self._write_packet(pending)
             elif magic == Magic.ASYN:
                 sub = payload[16:20]
                 reply = self.engine.handle_asyn(sub, payload[20:])
