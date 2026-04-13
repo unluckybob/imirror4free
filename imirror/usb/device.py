@@ -35,3 +35,4 @@ def activate_qt_and_get_interface():
                 return dev, cfg, intf
 
     raise RuntimeError("QuickTime interface not found. Install WinUSB driver (see README).")
+    
