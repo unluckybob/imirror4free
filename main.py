@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 def main():
     try:
         logger = logging.getLogger(__name__)
-        logger.info("🍎 Starting AnyMiro v2.4 USB Mirroring...")
+        logger.info("🍎 Starting IMIRROR4FREE v2.4 USB Mirroring...")
 
         dev, cfg, intf = activate_qt_and_get_interface()
 
@@ -26,10 +26,18 @@ def main():
         )
         if not ep_in:
             raise RuntimeError("No bulk IN endpoint found. Check USB connection.")
+        
+        # Find bulk OUT endpoint (host → device)
+        ep_out = usb.util.find_descriptor(
+            intf,
+            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+        )
+        if not ep_out:
+            raise RuntimeError("No bulk OUT endpoint found. Check USB connection.")
 
         logger.info("Initializing protocol engine...")
         engine = ValeriaEngine()
-        stream = StreamManager(dev, intf, ep_in, engine)
+        stream = StreamManager(dev, intf, ep_in, ep_out, engine)
         stream.start()
 
         logger.info("✅ Stream started! iPhone screen data is being received.")
