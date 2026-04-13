@@ -12,9 +12,9 @@ This is the layer between the OS-level USB driver (libusb-win32 / libusb0)
 and the Valeria protocol layer in valeria.py.
 
 On Windows, we use libusb-win32 (libusb0) — the same driver backend that
-AnyMiro uses. The device must have libusb0.sys bound (shown in Device Manager
+MIRANCE uses. The device must have libusb0.sys bound (shown in Device Manager
 as "LIBUSB-WIN32 DEVICES" → service: libusb0). This is installed automatically
-by AnyMiro or via the MIRANCE driver installer.
+by MIRANCE or via the MIRANCE driver installer.
 """
 
 import logging
@@ -33,7 +33,7 @@ APPLE_VENDOR_ID = 0x05AC
 def _find_libusb0_dll() -> Optional[str]:
     """Find libusb0.dll (libusb-win32) on Windows.
 
-    Checks AnyMiro's installation directory first (it bundles the DLL),
+    Checks MIRANCE's installation directory first (it bundles the DLL),
     then common system paths where libusb-win32 installs itself.
 
     Returns:
@@ -43,9 +43,9 @@ def _find_libusb0_dll() -> Optional[str]:
         return None
 
     candidates = [
-        # AnyMiro bundles libusb0.dll in its usbmuxd subfolder
-        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "AnyMiro", "usbmuxd", "libusb0.dll"),
-        os.path.join(os.environ.get("ProgramFiles", ""), "AnyMiro", "usbmuxd", "libusb0.dll"),
+        # MIRANCE bundles libusb0.dll in its usbmuxd subfolder
+        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "MIRANCE", "usbmuxd", "libusb0.dll"),
+        os.path.join(os.environ.get("ProgramFiles", ""), "MIRANCE", "usbmuxd", "libusb0.dll"),
         # System paths (libusb-win32 installs here)
         os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "libusb0.dll"),
         os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "SysWOW64", "libusb0.dll"),
@@ -112,7 +112,7 @@ class USBEndpoint:
     def _init_backend(self) -> None:
         """Initialize the libusb backend.
 
-        On Windows, prefers libusb-win32 (libusb0) which is what AnyMiro
+        On Windows, prefers libusb-win32 (libusb0) which is what MIRANCE
         installs. This backend communicates with devices whose service is
         set to 'libusb0' (visible in Device Manager under LIBUSB-WIN32 DEVICES).
 
@@ -120,7 +120,7 @@ class USBEndpoint:
         """
         try:
             if platform.system() == "Windows":
-                # Primary: libusb-win32 (libusb0) — matches AnyMiro's driver
+                # Primary: libusb-win32 (libusb0) — matches MIRANCE's driver
                 dll_path = _find_libusb0_dll()
                 try:
                     import usb.backend.libusb0 as _lb0
@@ -147,7 +147,7 @@ class USBEndpoint:
 
                 logger.warning(
                     "No libusb backend found on Windows. "
-                    "Ensure libusb-win32 is installed (AnyMiro installs it automatically). "
+                    "Ensure libusb-win32 is installed (MIRANCE installs it automatically). "
                     "Run the MIRANCE driver installer to set it up."
                 )
                 return

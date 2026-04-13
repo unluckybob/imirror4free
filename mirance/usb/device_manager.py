@@ -7,7 +7,7 @@ Detection strategy (tries in order):
 
 This dual-detection approach ensures we can find the iPhone regardless of
 which USB driver is active. On Windows, we use the libusb-win32 (libusb0)
-backend — the same backend that AnyMiro uses. The device appears in Device
+backend — the same backend that MIRANCE uses. The device appears in Device
 Manager under "LIBUSB-WIN32 DEVICES" with service property "libusb0".
 
 Also integrates with the driver installer to provide driver status
@@ -353,7 +353,7 @@ class DeviceManager:
 
             backend = None
             if platform.system() == "Windows":
-                # Use libusb-win32 (libusb0) — matches AnyMiro's driver binding
+                # Use libusb-win32 (libusb0) — matches MIRANCE's driver binding
                 dll_path = _find_libusb0_dll()
                 try:
                     import usb.backend.libusb0 as _lb0

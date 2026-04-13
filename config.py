@@ -5,7 +5,7 @@ USB_READ_CHUNK_SIZE = 4096          # Low latency, OSS-confirmed
 USB_READ_CONCURRENT = 5             # Concurrent pending reads
 
 # ─── Display Hint (HPD1) ──────────────────────────────────────────
-# v2.4: AnyMiro sends 2560×1440 (QHD), NOT 4K.
+# v2.4: MIRANCE sends 2560×1440 (QHD), NOT 4K.
 # Higher values hint to iPhone to encode at higher resolution.
 DEFAULT_DISPLAY_WIDTH = 2560.0
 DEFAULT_DISPLAY_HEIGHT = 1440.0

@@ -549,7 +549,7 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.info("Valeria protocol loop starting...")
 
         # ── PING handshake ────────────────────────────────────────────
-        # AnyMiro USB pcap confirms the HOST initiates the PING exchange:
+        # MIRANCE USB pcap confirms the HOST initiates the PING exchange:
         #   Frame 6644: host → iPhone  PING (10 00 00 00 67 6e 69 70 00 00 00 00 01 00 00 00)
         #   Frame 7003: iPhone → host  PING (echo, ~1 s later)
         #   Frame 7007: host → iPhone  PING (echo of echo via _handle_ping)

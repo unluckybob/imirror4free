@@ -2,7 +2,7 @@
 libusb-win32 (libusb0) Driver Auto-Installer for iPhone AV Interface.
 
 Installs the libusb-win32 driver for the iPhone so PyUSB can access it
-for Valeria protocol communication — exactly what AnyMiro does.
+for Valeria protocol communication — exactly what MIRANCE does.
 
 This installs a libusb-win32 "mirror driver" on first run.
 After installation, MIRANCE can send the USB control transfer to enable
@@ -18,7 +18,7 @@ Architecture:
     6. PyUSB (libusb0 backend) can now access the device → Valeria streaming works
 
 The device will appear in Device Manager under "LIBUSB-WIN32 DEVICES"
-with service property "libusb0" — identical to what AnyMiro sets up.
+with service property "libusb0" — identical to what MIRANCE sets up.
 
 Trade-off:
     While our libusb-win32 driver is installed, Apple's original driver is replaced.
@@ -29,7 +29,7 @@ Requirements:
     - Windows 10 or later
     - Administrator privileges (UAC prompt shown automatically)
     - iPhone connected via USB
-    - libusb0.inf in the Windows INF directory (installed by AnyMiro or libusb-win32)
+    - libusb0.inf in the Windows INF directory (installed by MIRANCE or libusb-win32)
 """
 
 import ctypes
@@ -176,7 +176,7 @@ def _detect_pid_pyusb() -> Optional[int]:
 
         backend = None
         if is_windows():
-            # Try libusb-win32 (libusb0) first — this is what AnyMiro uses
+            # Try libusb-win32 (libusb0) first — this is what MIRANCE uses
             dll_path = _find_libusb0_dll()
             try:
                 import usb.backend.libusb0 as _lb0
@@ -290,15 +290,15 @@ def generate_libusb0_inf(
 ) -> str:
     """Generate a libusb-win32 (libusb0) INF file for the iPhone.
 
-    Creates a self-contained INF (identical in format to what AnyMiro
+    Creates a self-contained INF (identical in format to what MIRANCE
     installs) that tells Windows to use the libusb-win32 driver for the
     specific iPhone model.  This replaces Apple's composite driver and
     gives PyUSB (libusb0 backend) access for Valeria / QuickTime AV
     protocol communication.
 
     The generated INF does NOT use Include/Needs — it defines every
-    required section inline, so it works whether or not AnyMiro is
-    installed.  When AnyMiro IS installed the libusb0.sys / libusb0.dll
+    required section inline, so it works whether or not MIRANCE is
+    installed.  When MIRANCE IS installed the libusb0.sys / libusb0.dll
     files are already in System32; the CopyFiles sections reference the
     existing DriverStore copies via SourceDisksFiles so pnputil can stage
     them correctly.
@@ -648,7 +648,7 @@ def _ensure_libusb0_dll() -> None:
 
     pnputil installs libusb0.sys (kernel driver) but NOT libusb0.dll
     (the user-mode library that PyUSB loads via ctypes).  On machines where
-    AnyMiro or the libusb-win32 installer has never run, libusb0.dll will be
+    MIRANCE or the libusb-win32 installer has never run, libusb0.dll will be
     absent and PyUSB silently finds no backend.
 
     We look for libusb0.dll next to the running .exe (bundled by PyInstaller
@@ -747,7 +747,7 @@ def install_driver(inf_path: Optional[str] = None, pid: Optional[int] = None) ->
     # Step 5: Ensure libusb0.dll (user-mode component) is in System32.
     # pnputil only installs the kernel driver (libusb0.sys).
     # PyUSB's libusb0 backend also needs libusb0.dll in a DLL search path.
-    # On machines without AnyMiro / libusb-win32 pre-installed it will be absent.
+    # On machines without MIRANCE / libusb-win32 pre-installed it will be absent.
     # We copy it from the app bundle (if present) so fresh machines work too.
     _ensure_libusb0_dll()
 
@@ -856,7 +856,7 @@ def _install_via_pnputil(inf_path: str) -> DriverInstallResult:
         # Check for success indicators.
         # Exit code 3010 = success but Windows requires a restart to activate
         # the new driver (the old Apple driver service is still loaded).
-        # This mirrors AnyMiro's behavior: it prompts "restart required" on
+        # This mirrors MIRANCE's behavior: it prompts "restart required" on
         # first driver installation because Apple's driver is currently in use.
         needs_restart = (result.returncode == 3010)
         success = (
@@ -1140,7 +1140,7 @@ def _is_libusb0_active_for_iphone() -> bool:
     """Check if libusb-win32 (libusb0) is the active driver for the iPhone.
 
     Looks for Apple USB devices in Device Manager and checks if their
-    service is 'libusb0' — which is what AnyMiro installs.
+    service is 'libusb0' — which is what MIRANCE installs.
     """
     if not is_windows():
         return False
