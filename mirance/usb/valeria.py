@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 class ValeriaEngine:
     def __init__(self):
         self.cwpa_dev_ref = self.cvrp_dev_ref = self.clok_dev_ref = self.audio_ref = None
+        self._rels_received = 0
+        self._pending_packets = []
         self.start_ns = time.perf_counter_ns()
 
     def now_ns(self) -> int: 
@@ -54,11 +56,38 @@ class ValeriaEngine:
         return None
 
     def handle_asyn(self, sub: bytes, payload: bytes) -> bytes | None:
+        # v2.4 §A5: TEARDOWN - handle RELS (release confirmations)
+        if sub == Magic.RELS:
+            self._rels_received += 1
+            logger.info(f"RELS received ({self._rels_received}/2)")
+            # After 2 RELS, send final HPD0
+            if self._rels_received >= 2:
+                logger.info("Both RELS received - sending final HPD0")
+                return build_asyn_hpd0()
+            return None
+        
         if sub == Magic.FEED:
             # Flow control: Send NEED immediately after FEED
             ref = (self.cvrp_dev_ref or 0).to_bytes(8, "little")
             return build_asyn_need(ref)
+        
+        # v2.4 §A3: Catch-all for unknown ASYN sub-types (SPRP, TJMP, SRAT, TBAS)
+        # These are rare/conditional and don't block normal streaming
+        logger.debug(f"Unknown ASYN sub-type: {sub.hex()}")
         return None
+    
+    def start_teardown(self) -> list[bytes]:
+        """Start teardown sequence per v2.4 §A5.
+        
+        Send HPA0 + HPD0, then wait for 2× RELS.
+        """
+        self._rels_received = 0
+        logger.info("Starting teardown sequence...")
+        
+        # Send HPA0 then HPD0
+        hpa0 = build_asyn_hpa0(struct.pack("<Q", self.audio_ref or 0))
+        hpd0 = build_asyn_hpd0()
+        return [hpa0, hpd0]
 
     def get_initial_packets(self) -> list[bytes]:
         """Returns packets to send at start of handshake."""
