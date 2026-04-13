@@ -152,6 +152,73 @@ def build_asyn_hpa0(audio_clock_ref: bytes) -> bytes:
     return struct.pack("<I4sQ4s", 20, Magic.ASYN, struct.unpack("<Q", audio_clock_ref)[0], Magic.HPA0)
 
 # ─── AVCC → Annex-B Conversion ────────────────────────────────────
+# ─── Data Structures ──────────────────────────────────────────────
+class Packet:
+    """Parsed USB packet with header + payload."""
+    
+    def __init__(self, packet_type: PacketType, magic: bytes, correlation_id: bytes, payload: bytes):
+        self.packet_type = packet_type
+        self.magic = magic
+        self.correlation_id = correlation_id
+        self.payload = payload
+    
+    @property
+    def data(self) -> bytes:
+        return self.payload
+    
+    def __repr__(self):
+        return f"Packet({self.packet_type}, len={len(self.payload)})"
+
+
+class VideoFrame:
+    """Decoded H.264 video frame."""
+    
+    def __init__(self, data: bytes, timestamp: float, key_frame: bool = False):
+        self.data = data
+        self.timestamp = timestamp
+        self.key_frame = key_frame
+        self.width = 0
+        self.height = 0
+    
+    def __repr__(self):
+        return f"VideoFrame({self.width}x{self.height}, ts={self.timestamp:.3f}, key={self.key_frame})"
+
+
+class AudioSample:
+    """PCM audio sample."""
+    
+    def __init__(self, data: bytes, timestamp: float, sample_rate: int = 48000, channels: int = 2):
+        self.data = data
+        self.timestamp = timestamp
+        self.sample_rate = sample_rate
+        self.channels = channels
+    
+    def __repr__(self):
+        return f"AudioSample({len(self.data)} bytes, ts={self.timestamp:.3f})"
+
+
+# ─── Packet Reader ──────────────────────────────────────────────
+def read_packet(data: bytes) -> Optional[Packet]:
+    """Parse incoming USB packet."""
+    if len(data) < 16:
+        return None
+    
+    # Read header: length(4) + magic(4) + correlation(8)
+    length = struct.unpack("<I", data[0:4])[0]
+    magic = data[4:8]
+    correlation = data[8:16]
+    payload = data[16:16+length-20] if length > 20 else b""
+    
+    # Map magic to packet type
+    pkt_type = PacketType.PING  # default
+    for pt in PacketType:
+        if getattr(Magic, pt.name, b"") == magic:
+            pkt_type = pt
+            break
+    
+    return Packet(pkt_type, magic, correlation, payload)
+
+
 def avcc_to_annexb(avcc_data: bytes) -> Optional[bytes]:
     out = bytearray()
     pos = 0
