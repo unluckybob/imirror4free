@@ -1,60 +1,55 @@
 """
 Premium Dark Theme for MIRROR4FREE.
 
-iOS-inspired premium dark theme with subtle gradients and glass effects.
-The accent color is derived from the app icon (deep crimson/rose).
+Based on Image 1 (icon) and Image 2 (GUI reference):
+- Dark black background with crimson/maroon accents
+- Minimalist sidebar-style UI
+- Glass effects with subtle gradients
 """
 
-# ── Premium Dark Color Palette ───────────────────────────────────────
+# ── Color Palette (from Image 1 icon analysis) ───────────────────────
+# Primary dark - near black
 BG_DEEP = "#000000"
-BG_PRIMARY = "#0D0D0D"
-BG_SECONDARY = "#1C1C1E"
-BG_TERTIARY = "#2C2C2E"
-BG_CARD = "#1E1E22"
-BG_OVERLAY = "rgba(30, 30, 34, 0.85)"
+BG_PRIMARY = "#0A0A0A"
+BG_SECONDARY = "#141414"
+BG_TERTIARY = "#1C1C1C"
+BG_CARD = "#1A1A1A"
+BG_OVERLAY = "rgba(20, 20, 20, 0.92)"
 
-# Accent - Derived from app icon (deep crimson/rose)
-ACCENT_PRIMARY = "#B5342B"
-ACCENT_LIGHT = "#E8453A"
-ACCENT_DARK = "#8E2620"
-ACCENT_GLOW = "rgba(181, 52, 43, 0.3)"
+# Crimson/Maroon accent (from icon colors #1a0808 to #260609)
+ACCENT_PRIMARY = "#8B0000"       # Dark red from icon
+ACCENT_LIGHT = "#B5342B"         # Brighter crimson
+ACCENT_MEDIUM = "#6B0000"        # Mid-tone
+ACCENT_DARK = "#4A0000"          # Deep crimson
+ACCENT_GLOW = "rgba(139, 0, 0, 0.4)"
 
-# Text
+# Text colors
 TEXT_PRIMARY = "#FFFFFF"
-TEXT_SECONDARY = "#8E8E93"
-TEXT_TERTIARY = "#636366"
-TEXT_LINK = "#0A84FF"
+TEXT_SECONDARY = "#A0A0A0"
+TEXT_TERTIARY = "#606060"
+TEXT_LINK = "#4A90D9"
 
-# Status Colors
-SUCCESS = "#30D158"
-WARNING = "#FF9F0A"
-ERROR = "#FF453A"
-INFO = "#64D2FF"
+# Status
+SUCCESS = "#00C853"
+WARNING = "#FFB300"
+ERROR = "#FF1744"
+INFO = "#2979FF"
 
 # Borders & Separators
-BORDER_SUBTLE = "rgba(255, 255, 255, 0.08)"
-BORDER_ACTIVE = "rgba(181, 52, 43, 0.4)"
-SEPARATOR = "rgba(255, 255, 255, 0.06)"
+BORDER_SUBTLE = "rgba(255, 255, 255, 0.06)"
+BORDER_ACTIVE = "rgba(139, 0, 0, 0.5)"
+SEPARATOR = "rgba(255, 255, 255, 0.04)"
 
 # Fonts
-FONT_DISPLAY = '"SF Pro Display", -apple-system, "Segoe UI", sans-serif'
-FONT_BODY = '"SF Pro Text", -apple-system, "Segoe UI", sans-serif'
-FONT_MONO = '"SF Mono", "Cascadia Code", "Consolas", monospace'
-
-# ── Premium Glass Effect ────────────────────────────────────────────
-GLASS_EFFECT = """
-    background: rgba(30, 30, 34, 0.7);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-"""
+FONT_DISPLAY = '"Inter", "SF Pro Display", -apple-system, "Segoe UI", sans-serif'
+FONT_BODY = '"Inter", "SF Pro Text", -apple-system, "Segoe UI", sans-serif'
+FONT_MONO = '"JetBrains Mono", "SF Mono", "Cascadia Code", monospace'
 
 # ── Main Dark Theme ─────────────────────────────────────────────────
 DARK_THEME = f"""
     /* ── Base ───────────────────────────────────────────────────── */
     QMainWindow {{
         background-color: {BG_DEEP};
-        background-image: linear-gradient(180deg, {BG_PRIMARY} 0%, {BG_DEEP} 100%);
     }}
 
     QWidget {{
@@ -77,9 +72,9 @@ DARK_THEME = f"""
 
     QLabel#titleLabel {{
         font-family: {FONT_DISPLAY};
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 600;
-        letter-spacing: -0.5px;
+        letter-spacing: -0.3px;
     }}
 
     QLabel#subtitleLabel {{
@@ -91,18 +86,17 @@ DARK_THEME = f"""
         font-size: 12px;
         color: {TEXT_SECONDARY};
         background: {BG_SECONDARY};
-        padding: 8px 16px;
-        border-radius: 12px;
+        padding: 8px 14px;
+        border-radius: 10px;
     }}
 
     QLabel#fpsLabel {{
         font-family: {FONT_MONO};
-        font-size: 13px;
+        font-size: 12px;
         color: {SUCCESS};
-        background: {BG_OVERLAY};
-        padding: 6px 12px;
-        border-radius: 8px;
-        border: 1px solid rgba(48, 209, 88, 0.2);
+        background: {BG_TERTIARY};
+        padding: 6px 10px;
+        border-radius: 6px;
     }}
 
     /* ── Buttons ─────────────────────────────────────────────────── */
@@ -110,67 +104,57 @@ DARK_THEME = f"""
         background: {BG_TERTIARY};
         color: {TEXT_PRIMARY};
         border: none;
-        border-radius: 12px;
-        padding: 12px 24px;
+        border-radius: 10px;
+        padding: 12px 20px;
         font-family: {FONT_BODY};
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 500;
-        transition: all 0.2s ease;
     }}
 
     QPushButton:hover {{
         background: {BG_CARD};
-        transform: translateY(-1px);
     }}
 
     QPushButton:pressed {{
         background: {BG_SECONDARY};
-        transform: translateY(0);
     }}
 
     QPushButton:disabled {{
         background: {BG_SECONDARY};
         color: {TEXT_TERTIARY};
-        opacity: 0.6;
     }}
 
-    /* Primary Button - Accent */
+    /* Primary Button - Crimson accent */
     QPushButton#primaryButton {{
         background: {ACCENT_PRIMARY};
         color: {TEXT_PRIMARY};
         font-weight: 600;
-        box-shadow: 0 4px 12px {ACCENT_GLOW};
     }}
 
     QPushButton#primaryButton:hover {{
         background: {ACCENT_LIGHT};
-        box-shadow: 0 6px 16px {ACCENT_GLOW};
     }}
 
     QPushButton#primaryButton:pressed {{
         background: {ACCENT_DARK};
     }}
 
-    /* Icon Button (circular) */
+    /* Icon Button */
     QPushButton#iconButton {{
         background: {BG_TERTIARY};
         border-radius: 50%;
-        padding: 12px;
-        min-width: 44px;
-        min-height: 44px;
-    }}
-
-    QPushButton#iconButton:hover {{
-        background: {BG_CARD};
+        padding: 10px;
+        min-width: 40px;
+        min-height: 40px;
     }}
 
     /* ── Status Bar ─────────────────────────────────────────────── */
     QStatusBar {{
         background: {BG_PRIMARY};
         color: {TEXT_SECONDARY};
-        font-size: 12px;
+        font-size: 11px;
         border-top: 1px solid {SEPARATOR};
-        padding: 4px 12px;
+        padding: 4px 10px;
     }}
 
     /* ── Menu Bar ───────────────────────────────────────────────── */
@@ -178,14 +162,13 @@ DARK_THEME = f"""
         background: {BG_PRIMARY};
         color: {TEXT_PRIMARY};
         border: none;
-        padding: 6px 8px;
-        font-size: 13px;
+        padding: 4px 8px;
+        font-size: 12px;
     }}
 
     QMenuBar::item {{
-        padding: 8px 16px;
-        border-radius: 8px;
-        background: transparent;
+        padding: 6px 12px;
+        border-radius: 6px;
     }}
 
     QMenuBar::item:selected {{
@@ -195,16 +178,15 @@ DARK_THEME = f"""
     /* ── Menus ─────────────────────────────────────────────────── */
     QMenu {{
         background: {BG_OVERLAY};
-        backdrop-filter: blur(20px);
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 16px;
-        padding: 8px;
+        border-radius: 12px;
+        padding: 6px;
     }}
 
     QMenu::item {{
-        padding: 10px 32px 10px 16px;
-        border-radius: 8px;
+        padding: 8px 28px 8px 14px;
+        border-radius: 6px;
     }}
 
     QMenu::item:selected {{
@@ -214,7 +196,7 @@ DARK_THEME = f"""
     QMenu::separator {{
         height: 1px;
         background: {SEPARATOR};
-        margin: 6px 8px;
+        margin: 4px 8px;
     }}
 
     /* ── Tooltips ───────────────────────────────────────────────── */
@@ -222,31 +204,29 @@ DARK_THEME = f"""
         background: {BG_CARD};
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 10px;
-        padding: 8px 14px;
-        font-size: 12px;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 11px;
     }}
 
     /* ── Group Boxes ────────────────────────────────────────────── */
     QGroupBox {{
-        font-family: {FONT_DISPLAY};
         font-weight: 600;
-        font-size: 13px;
+        font-size: 12px;
         color: {TEXT_SECONDARY};
         background: {BG_SECONDARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 16px;
-        margin-top: 20px;
-        padding: 20px;
+        border-radius: 12px;
+        margin-top: 16px;
+        padding: 16px;
     }}
 
     QGroupBox::title {{
         subcontrol-origin: margin;
-        left: 16px;
-        padding: 0 12px;
+        left: 12px;
+        padding: 0 8px;
         color: {TEXT_SECONDARY};
-        font-size: 12px;
-        font-weight: 600;
+        font-size: 11px;
     }}
 
     /* ── ComboBox ───────────────────────────────────────────────── */
@@ -254,10 +234,9 @@ DARK_THEME = f"""
         background: {BG_TERTIARY};
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 10px;
-        padding: 10px 14px;
-        font-size: 13px;
-        min-height: 20px;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
     }}
 
     QComboBox:hover {{
@@ -266,16 +245,15 @@ DARK_THEME = f"""
 
     QComboBox::drop-down {{
         border: none;
-        width: 32px;
+        width: 24px;
     }}
 
     QComboBox QAbstractItemView {{
         background: {BG_OVERLAY};
-        backdrop-filter: blur(20px);
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 12px;
-        padding: 6px;
+        border-radius: 10px;
+        padding: 4px;
         selection-background-color: {BG_TERTIARY};
     }}
 
@@ -284,32 +262,24 @@ DARK_THEME = f"""
         background: {BG_TERTIARY};
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 10px;
-        padding: 10px 14px;
-        font-size: 13px;
-    }}
-
-    QSpinBox:hover {{
-        border-color: {BORDER_ACTIVE};
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 12px;
     }}
 
     /* ── CheckBox ───────────────────────────────────────────────── */
     QCheckBox {{
         color: {TEXT_PRIMARY};
-        spacing: 12px;
-        font-size: 14px;
+        spacing: 10px;
+        font-size: 13px;
     }}
 
     QCheckBox::indicator {{
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
         border: 2px solid {BG_TERTIARY};
         background: {BG_TERTIARY};
-    }}
-
-    QCheckBox::indicator:hover {{
-        border-color: {TEXT_TERTIARY};
     }}
 
     QCheckBox::indicator:checked {{
@@ -319,46 +289,35 @@ DARK_THEME = f"""
 
     /* ── Sliders ───────────────────────────────────────────────── */
     QSlider::groove:horizontal {{
-        height: 6px;
+        height: 4px;
         background: {BG_TERTIARY};
-        border-radius: 3px;
+        border-radius: 2px;
     }}
 
     QSlider::handle:horizontal {{
         background: {TEXT_PRIMARY};
-        width: 20px;
-        height: 20px;
-        margin: -7px 0;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        width: 16px;
+        height: 16px;
+        margin: -6px 0;
+        border-radius: 8px;
     }}
 
     QSlider::sub-page:horizontal {{
         background: {ACCENT_PRIMARY};
-        border-radius: 3px;
+        border-radius: 2px;
     }}
 
     /* ── Scroll Bars ─────────────────────────────────────────────── */
     QScrollBar:vertical {{
         background: transparent;
-        width: 10px;
+        width: 8px;
         margin: 0;
     }}
 
     QScrollBar::handle:vertical {{
         background: {BG_TERTIARY};
-        border-radius: 5px;
-        min-height: 30px;
-    }}
-
-    QScrollBar::handle:vertical:hover {{
-        background: {BG_CARD};
-    }}
-
-    QScrollBar:horizontal {{
-        background: transparent;
-        height: 10px;
-        margin: 0;
+        border-radius: 4px;
+        min-height: 24px;
     }}
 
     /* ── Dialog ─────────────────────────────────────────────────── */
@@ -368,11 +327,6 @@ DARK_THEME = f"""
 
     QMessageBox {{
         background: {BG_SECONDARY};
-    }}
-
-    QMessageBox QLabel {{
-        color: {TEXT_PRIMARY};
-        font-size: 14px;
     }}
 """
 
@@ -388,7 +342,7 @@ WAITING_SCREEN_STYLE = f"""
 
     QLabel#waitingTitle {{
         font-family: {FONT_DISPLAY};
-        font-size: 32px;
+        font-size: 28px;
         font-weight: 300;
         color: {TEXT_PRIMARY};
         letter-spacing: -0.5px;
@@ -396,13 +350,13 @@ WAITING_SCREEN_STYLE = f"""
     }}
 
     QLabel#waitingSubtitle {{
-        font-size: 14px;
+        font-size: 13px;
         color: {TEXT_SECONDARY};
         background: transparent;
     }}
 
     QLabel#waitingDot {{
-        font-size: 36px;
+        font-size: 32px;
         color: {ACCENT_PRIMARY};
         background: transparent;
     }}
@@ -413,18 +367,17 @@ TOOLBAR_STYLE = f"""
     QToolBar {{
         background: {BG_PRIMARY};
         border-bottom: 1px solid {SEPARATOR};
-        padding: 6px 12px;
-        spacing: 8px;
+        padding: 6px 10px;
+        spacing: 6px;
     }}
 
     QToolButton {{
         background: transparent;
         border: none;
-        border-radius: 10px;
-        padding: 10px 16px;
+        border-radius: 8px;
+        padding: 8px 14px;
         color: {TEXT_PRIMARY};
-        font-size: 13px;
-        font-weight: 500;
+        font-size: 12px;
     }}
 
     QToolButton:hover {{
@@ -447,27 +400,26 @@ SETTINGS_DIALOG_STYLE = f"""
     }}
 
     QGroupBox {{
-        font-family: {FONT_DISPLAY};
         font-weight: 600;
-        font-size: 13px;
+        font-size: 12px;
         color: {TEXT_SECONDARY};
         background: {BG_SECONDARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 16px;
-        margin-top: 20px;
-        padding: 20px;
+        border-radius: 12px;
+        margin-top: 16px;
+        padding: 16px;
     }}
 
     QGroupBox::title {{
         subcontrol-origin: margin;
-        left: 16px;
-        padding: 0 12px;
-        font-size: 12px;
+        left: 12px;
+        padding: 0 8px;
+        font-size: 11px;
     }}
 
     QLabel {{
         color: {TEXT_SECONDARY};
-        font-size: 13px;
+        font-size: 12px;
         background: transparent;
     }}
 
@@ -475,27 +427,27 @@ SETTINGS_DIALOG_STYLE = f"""
         background: {BG_TERTIARY};
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 10px;
-        padding: 10px 14px;
+        border-radius: 8px;
+        padding: 8px 12px;
     }}
 
     QSpinBox {{
         background: {BG_TERTIARY};
         color: {TEXT_PRIMARY};
         border: 1px solid {BORDER_SUBTLE};
-        border-radius: 10px;
-        padding: 10px 14px;
+        border-radius: 8px;
+        padding: 8px 12px;
     }}
 
     QCheckBox {{
         color: {TEXT_PRIMARY};
-        spacing: 12px;
+        spacing: 10px;
     }}
 
     QCheckBox::indicator {{
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
         border: 2px solid {BG_TERTIARY};
         background: {BG_TERTIARY};
     }}
@@ -509,9 +461,9 @@ SETTINGS_DIALOG_STYLE = f"""
         background: {BG_TERTIARY};
         color: {TEXT_PRIMARY};
         border: none;
-        border-radius: 12px;
-        padding: 12px 24px;
-        font-size: 14px;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-size: 13px;
     }}
 
     QPushButton:hover {{
