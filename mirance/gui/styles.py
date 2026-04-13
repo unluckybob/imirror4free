@@ -1,14 +1,18 @@
 """
-Premium Dark Theme for MIRANCE.
+Premium macOS-Inspired Dark Theme for MIRANCE.
 
-Based on Image 1 (icon) and Image 2 (GUI reference):
-- Dark black background with crimson/maroon accents
-- Minimalist sidebar-style UI
-- Glass effects with subtle gradients
+Based on Image 1 (icon) and macOS design reference:
+- macOS modal dialog style layout
+- Crimson (#8B0000) color palette from Image 1 icon
+- Premium dark theme with crimson accents
+
+Image 1: https://imgur.com/a/dQ8tFfm
+- EXE ICON, INSTALLER ICON
+- GUI color palette: Crimson (#8B0000), Dark backgrounds
 """
 
-# ── Color Palette (from Image 1 icon analysis) ───────────────────────
-# Primary dark - near black
+# ── Color Palette (from Image 1 icon - imgur.com/a/dQ8tFfm) ──────────
+# Primary dark - near black (from icon dark tones)
 BG_DEEP = "#000000"
 BG_PRIMARY = "#0A0A0A"
 BG_SECONDARY = "#141414"
@@ -16,8 +20,8 @@ BG_TERTIARY = "#1C1C1C"
 BG_CARD = "#1A1A1A"
 BG_OVERLAY = "rgba(20, 20, 20, 0.92)"
 
-# Crimson/Maroon accent (from icon colors #1a0808 to #260609)
-ACCENT_PRIMARY = "#8B0000"       # Dark red from icon
+# Crimson/Maroon accent (from Image 1 icon palette)
+ACCENT_PRIMARY = "#8B0000"       # Crimson dark red
 ACCENT_LIGHT = "#B5342B"         # Brighter crimson
 ACCENT_MEDIUM = "#6B0000"        # Mid-tone
 ACCENT_DARK = "#4A0000"          # Deep crimson
