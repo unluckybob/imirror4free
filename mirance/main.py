@@ -5,11 +5,11 @@ A free, open-source USB screen mirroring tool for iPhone on Windows.
 Uses Apple's Valeria protocol for zero-latency H.264 streaming.
 
 Usage:
-    python -m imirror                    # Launch GUI
-    python -m imirror --backend valeria  # Force Valeria backend
-    python -m imirror --install-driver   # Install mirror driver (CLI)
-    python -m imirror --check-driver     # Check driver status (CLI)
-    python -m imirror --diag             # Run full USB diagnostic
+    python -m mirance                    # Launch GUI
+    python -m mirance --backend valeria  # Force Valeria backend
+    python -m mirance --install-driver   # Install mirror driver (CLI)
+    python -m mirance --check-driver     # Check driver status (CLI)
+    python -m mirance --diag             # Run full USB diagnostic
 """
 
 import argparse
@@ -58,7 +58,7 @@ def setup_logging(verbose: bool = False, log_file: str = None) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        prog="imirror",
+        prog="mirance",
         description=f"{__app_name__} v{__version__} — Free iPhone USB Screen Mirror",
     )
 

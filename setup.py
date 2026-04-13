@@ -1,7 +1,7 @@
 import re
 from setuptools import setup, find_packages
 
-with open("imirror/__init__.py") as f:
+with open("mirance/__init__.py") as f:
     version = re.search(r'__version__\s*=\s*"(.+)"', f.read()).group(1)
 
 setup(
@@ -9,7 +9,7 @@ setup(
     version=version,
     description="The definitive free iPhone USB screen mirroring tool for Windows",
     author="unluckybob",
-    url="https://github.com/unluckybob/MIRANCE",
+    url="https://github.com/unluckybob/mirance",
     packages=find_packages(),
     python_requires=">=3.10",
     install_requires=[
@@ -25,7 +25,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "imirror=mirance.main:main",
+            "mirance=mirance.main:main",
         ],
     },
 )

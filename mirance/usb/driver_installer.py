@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 APPLE_VID = 0x05AC
 
 # Persistent driver directory (survives app restarts)
-DRIVER_DIR_NAME = "imirror_driver"
+DRIVER_DIR_NAME = "mirance_driver"
 
 
 class DriverInstallResult:
@@ -340,7 +340,7 @@ Signature      = "$Windows NT$"
 Class          = "libusb-win32 devices"
 ClassGuid      = {{EB781AAF-9C70-4523-A5DF-642A87ECA567}}
 Provider       = "libusb-win32"
-CatalogFile    = imirror_mirror.cat
+CatalogFile    = mirance_mirror.cat
 DriverVer      = 02/22/2024, 1.4.0.0
 
 [ClassInstall32]
@@ -471,7 +471,7 @@ ServiceBinary  = %12%\\libusb0.sys
 %DeviceName% = LIBUSB_WIN32_DEV.NTARM64, USB\\%DeviceID%
 """
 
-    inf_path = os.path.join(output_dir, "imirror_mirror.inf")
+    inf_path = os.path.join(output_dir, "mirance_mirror.inf")
     with open(inf_path, "w", encoding="utf-8") as f:
         f.write(inf_content)
 
@@ -504,7 +504,7 @@ def create_certificate_and_sign(inf_path: str) -> bool:
         True if signing succeeded.
     """
     output_dir = os.path.dirname(inf_path)
-    cat_path = os.path.join(output_dir, "imirror_mirror.cat")
+    cat_path = os.path.join(output_dir, "mirance_mirror.cat")
     cert_name = "MIRANCE Mirror Driver"
 
     try:

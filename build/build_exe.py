@@ -102,8 +102,8 @@ def build():
         "--hidden-import=ctypes.wintypes",
         "--hidden-import=_cffi_backend",       # Required by pymobiledevice3/cryptography
 
-        # Driver + recording + all imirror submodules
-        "--hidden-import=imirror",
+        # Driver + recording + all mirance submodules
+        "--hidden-import=mirance",
         "--hidden-import=mirance.main",
         "--hidden-import=mirance.config",
         "--hidden-import=mirance.capture",
@@ -131,7 +131,7 @@ def build():
 
         # -- Collect packages with native DLLs --
         # CRITICAL: without these, the EXE crashes on import with missing DLL errors.
-        "--collect-all=imirror",
+        "--collect-all=mirance",
         "--collect-all=av",                    # FFmpeg DLLs (avcodec, avformat, etc.)
         "--collect-all=pymobiledevice3",
         "--collect-all=OpenGL",

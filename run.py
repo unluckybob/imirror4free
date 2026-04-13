@@ -40,7 +40,7 @@ def write_crash_log(error_text: str) -> str | None:
         else:
             log_dir = os.path.dirname(os.path.abspath(__file__))
 
-        log_path = os.path.join(log_dir, "imirror_crash.log")
+        log_path = os.path.join(log_dir, "mirance_crash.log")
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"MIRANCE Crash Log — {datetime.now()}\n")
             f.write("=" * 60 + "\n\n")
