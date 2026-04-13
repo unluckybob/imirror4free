@@ -179,7 +179,9 @@ class ValeriaStreamCapture(CaptureBackend):
 
     def check_driver_ready(self) -> tuple[bool, str, str]:
         """Check if the libusb-win32 driver is ready for Valeria streaming.
-
+        
+        Also attempts automatic driver installation if needed and can_auto_install is True.
+        
         Returns:
             Tuple of (ready, message, error_type).
         """
@@ -206,11 +208,19 @@ class ValeriaStreamCapture(CaptureBackend):
                     StreamError.DRIVER_REPLUG,
                 )
 
-            if not status.libusb_accessible:
+            # Driver not installed - try auto-install
+            logger.info("Driver not installed - attempting automatic installation...")
+            install_result = self._auto_install_driver()
+            if install_result.success:
+                return (
+                    True,
+                    "Driver auto-installed. Please unplug and replug your iPhone, then try again.",
+                    StreamError.DRIVER_REPLUG,
+                )
+            else:
                 return (
                     False,
-                    "Mirror driver not installed. Click 'Install Mirror Driver' "
-                    "to enable USB screen mirroring.",
+                    f"Mirror driver not installed. {install_result.message}",
                     StreamError.DRIVER_NEEDED,
                 )
 
@@ -219,6 +229,41 @@ class ValeriaStreamCapture(CaptureBackend):
 
         # If we can't check, try anyway (might work on Linux/macOS)
         return True, "Driver check skipped", StreamError.GENERIC
+
+    def _auto_install_driver(self) -> 'DriverInstallResult':
+        """Automatically install the libusb-win32 driver.
+        
+        Returns:
+            DriverInstallResult with success status and message.
+        """
+        try:
+            from imirror.usb.driver_installer import (
+                check_driver_status, full_driver_setup, DriverInstallResult
+            )
+            
+            # Check if already installed
+            status = check_driver_status()
+            if status.ready_to_stream:
+                return DriverInstallResult(True, "Driver already ready")
+            
+            # Need iPhone detected to install
+            if not status.iphone_detected:
+                return DriverInstallResult(False, "No iPhone detected. Connect your iPhone first.")
+            
+            # Attempt automatic installation
+            logger.info("Auto-installing libusb-win32 driver...")
+            result = full_driver_setup()
+            
+            if result.success:
+                logger.info("Driver auto-installed successfully")
+            else:
+                logger.warning(f"Driver auto-install failed: {result.message}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Driver auto-install error: {e}")
+            return DriverInstallResult(False, f"Installation error: {e}")
 
     def start(self, device_udid: str) -> bool:
         """Start the Valeria stream capture.
