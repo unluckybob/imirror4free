@@ -68,6 +68,10 @@ def build_rply(correlation_id: bytes, value: int) -> bytes:
     """Standard 28-byte RPLY (CWPA/CVRP/CLOK/SKEW/OG/STOP)"""
     return struct.pack("<I4s8sIQ", 28, Magic.RPLY, correlation_id, 0, value)
 
+def build_skew_reply(correlation_id: bytes, skew_ratio: float) -> bytes:
+    """v2.4 §A9: 28-byte SKEW reply with float64 skew ratio at bytes 20-27."""
+    return struct.pack("<I4s8sd", 28, Magic.RPLY, correlation_id, 0, skew_ratio)
+
 def build_time_reply(correlation_id: bytes, value_ns: int) -> bytes:
     """v2.4 §A8: 44-byte TIME reply with CMTime (flags=0)"""
     # CMTime: value(8) + timescale(4) + flags(4) + epoch(8)

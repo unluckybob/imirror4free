@@ -759,8 +759,9 @@ class ValeriaStreamCapture(CaptureBackend):
 
                         if self._decoder and not self._decoder.is_initialized:
                             extradata = self._session.get_decoder_extradata()
-                            # v2.4 §J2: FEED contains HEVC regardless of Valeria flag
-                            codec_name = "hevc" if extradata else "h264"
+                            # v2.4 §D2: iPhone ALWAYS sends HEVC, never H.264
+                            # CVRP avcC is legacy declaration - real stream is HEVC
+                            codec_name = "hevc"
                             self._decoder.initialize(
                                 codec_name=codec_name,
                                 extradata=extradata,

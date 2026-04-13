@@ -3,7 +3,8 @@ import time
 import struct
 import logging
 from .packets import (
-    Magic, build_rply, build_time_reply, 
+    build_rply, build_skew_reply, build_time_reply,
+    build_rply, build_time_reply, 
     build_afmt_rply, build_asyn_hpd1, build_asyn_hpa1, 
     build_asyn_need, build_asyn_hpd0, build_asyn_hpa0
 )
@@ -15,6 +16,9 @@ class ValeriaEngine:
         self.cwpa_dev_ref = self.cvrp_dev_ref = self.clok_dev_ref = self.audio_ref = None
         self._rels_received = 0
         self._pending_packets = []
+        # v2.4 §A9: SKEW tracking
+        self._skew_start_local = None
+        self._skew_start_device = None
         self.start_ns = time.perf_counter_ns()
 
     def now_ns(self) -> int: 
@@ -44,13 +48,15 @@ class ValeriaEngine:
             return build_time_reply(corr, self.now_ns())
             
         elif sub == Magic.AFMT:
-            # AFMT contains connection_id (20:28) and tag (28:32)
-            conn = payload[20:28] if len(payload)>=28 else b"\x00"*8
-            tag = payload[28:32] if len(payload)>=32 else b"\x00"*4
+            # v2.4 §A10: Use corr (correlationID) and sub (sub-type) directly
+            # These are already extracted from SYNC header by caller
             logger.info("AFMT received → Sending 62-byte RPLY")
-            return build_afmt_rply(conn, tag)
+            return build_afmt_rply(connection_id=corr, tag=sub)
             
-        elif sub in (Magic.SKEW, Magic.OG, Magic.STOP):
+        elif sub == Magic.SKEW:
+            # v2.4 §A9: SKEW uses float64 drift ratio, not integer
+            return build_skew_reply(corr, self._calculate_skew())
+        elif sub in (Magic.OG, Magic.STOP):
             return build_rply(corr, 0)
             
         return None
@@ -67,8 +73,11 @@ class ValeriaEngine:
             return None
         
         if sub == Magic.FEED:
-            # Flow control: Send NEED immediately after FEED
-            ref = (self.cvrp_dev_ref or 0).to_bytes(8, "little")
+            # v2.4 §A4.5: Flow control - only send NEED after CVRP received
+            if self.cvrp_dev_ref is None:
+                logger.warning("FEED received but CVRP not yet received - skipping NEED")
+                return None
+            ref = self.cvrp_dev_ref.to_bytes(8, "little")
             return build_asyn_need(ref)
         
         # v2.4 §A3: Catch-all for unknown ASYN sub-types (SPRP, TJMP, SRAT, TBAS)
@@ -90,8 +99,30 @@ class ValeriaEngine:
         return [hpa0, hpd0]
 
     def get_initial_packets(self) -> list[bytes]:
-        """Returns packets to send at start of handshake."""
-        # v2.4 §A5: HPD1 sent TWICE, then HPA1 after CWPA-RPLY
+        """Returns packets AFTER PING+CWPA handshake per v2.4 §A5.
+        
+        Sequence: PING → CWPA → THEN send HPD1×2 + HPA1
+        """
+        return []  # Handshake packets sent after CWPA via queue_hpd1_hpa1()
+    def queue_hpd1_hpa1(self, audio_clock_ref: int):
+        """Queue HPD1 (×2) + HPA1 to send after CWPA-RPLY per v2.4 §A5.
+        
+        audio_clock_ref: the CWPA DeviceClockRef from the iPhone
+        """
+        self._pending_packets = []
+        
+        # HPD1 sent twice (v2.4 §A5 confirmed)
         hpd1 = build_asyn_hpd1()
-        hpa1 = build_asyn_hpa1(b"\x00\x00\x00\x00\x00\x00\x00\x00")  # placeholder clock ref
-        return [hpd1, hpd1, hpa1]
+        self._pending_packets.extend([hpd1, hpd1])
+        
+        # HPA1 with asynTypeHeader = CWPA DeviceClockRef (§A7)
+        hpa1 = build_asyn_hpa1(struct.pack("<Q", audio_clock_ref))
+        self._pending_packets.append(hpa1)
+        
+        logger.info(f"Queued {len(self._pending_packets)} handshake packets (2×HPD1 + HPA1)")
+    
+    def get_pending_packets(self) -> list[bytes]:
+        """Return and clear any pending handshake packets."""
+        packets = getattr(self, '_pending_packets', [])
+        self._pending_packets = []
+        return packets
