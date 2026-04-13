@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 echo ========================================
-echo  IMIRROR4FREE - Debug Mode
+echo  IMIRANCE - Debug Mode
 echo ========================================
 echo.
 
