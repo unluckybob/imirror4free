@@ -291,6 +291,32 @@ def build():
         print("  FFmpeg      : Using PyAV bundled FFmpeg (no external DLLs)")
     # ────────────────────────────────────────────────────────────────────────
 
+    # ── Bundle libusb DLLs (from usbmuxd folder - exact AnyMiro) ───────────
+    # AnyMiro includes libusb0.dll and libusb-1.0.dll in usbmuxd folder
+    # These are critical for USB device communication
+    _libusb_dlls = [
+        ("libusb0.dll", "libusb0.dll"),
+        ("libusb-1.0.dll", "libusb-1.0.dll"),
+    ]
+    _bundled_libusb = 0
+    for _src_name, _dst_name in _libusb_dlls:
+        _src = os.path.join(PROJECT_ROOT, "assets", _src_name)
+        if os.path.exists(_src):
+            args.append(f"--add-binary={_src}{os.pathsep}.")
+            _bundled_libusb += 1
+            print(f"  libusb     : {_src_name} bundled (like AnyMiro)")
+    # ────────────────────────────────────────────────────────────────────────
+
+    # ── Bundle usbmuxd.exe (exact copy from AnyMiro) ────────────────────────
+    # usbmuxd.exe is the USB multiplexing daemon - critical for iPhone USB
+    _usbmuxd = os.path.join(PROJECT_ROOT, "assets", "usbmuxd.exe")
+    if os.path.exists(_usbmuxd):
+        args.append(f"--add-binary={_usbmuxd}{os.pathsep}.")
+        print(f"  usbmuxd.exe : Bundled (like AnyMiro)")
+    else:
+        print(f"  usbmuxd.exe : NOT FOUND - will use Python usbmux implementation")
+    # ────────────────────────────────────────────────────────────────────────
+
     PyInstaller.__main__.run(args)
 
     exe_path = os.path.join(PROJECT_ROOT, "dist", "MIRANCE", "MIRANCE.exe")
