@@ -136,3 +136,99 @@ class ValeriaEngine:
         packets = getattr(self, '_pending_packets', [])
         self._pending_packets = []
         return packets
+
+
+# Alias for backward compatibility
+ValeriaSession = ValeriaEngine
+
+
+# Extended session with all stream handling methods
+class ValeriaSession(ValeriaEngine):
+    """Extended session with all streaming methods for stream.py compatibility."""
+    
+    def __init__(self):
+        super().__init__()
+        self._video_width = 0
+        self._video_height = 0
+        self._decoder_extradata: bytes = None
+        self._on_video_callback = None
+        self._on_audio_callback = None
+        self._video_format = {}
+    
+    def reset(self):
+        """Reset session state."""
+        self.cwpa_dev_ref = None
+        self.cvrp_dev_ref = None
+        self.clok_dev_ref = None
+        self.audio_ref = None
+        self._rels_received = 0
+        self._pending_packets = []
+        self._video_width = 0
+        self._video_height = 0
+        self._decoder_extradata = None
+    
+    @property
+    def video_format(self) -> dict:
+        return self._video_format
+    
+    def on_video_frame(self, callback):
+        """Register video frame callback."""
+        self._on_video_callback = callback
+    
+    def on_audio_sample(self, callback):
+        """Register audio sample callback."""
+        self._on_audio_callback = callback
+    
+    def handle_packet(self, packet: bytes) -> bytes | None:
+        """Handle any incoming packet and return reply."""
+        if len(packet) < 16:
+            return None
+        
+        # Parse header: length(4) + magic(4) + correlation(8)
+        total_len = int.from_bytes(packet[0:4], 'little')
+        magic = packet[4:8]
+        correlation = packet[8:16]
+        payload = packet[16:]
+        
+        if magic == b"nysa":  # ASYN
+            sub = payload[16:20] if len(payload) >= 20 else b""
+            return self.handle_asyn(sub, payload[20:])
+        elif magic == b"cnys":  # SYNC
+            sub = payload[12:16] if len(payload) >= 16 else b""
+            return self.handle_sync(sub, correlation, payload)
+        
+        return None
+    
+    def build_need_packet(self) -> bytes | None:
+        """Build NEED packet to request video frame."""
+        if self.cvrp_dev_ref is None:
+            return None
+        ref = self.cvrp_dev_ref.to_bytes(8, "little")
+        return build_asyn_need(ref)
+    
+    def build_hpd1_hpa1_packets(self) -> list[bytes]:
+        """Build HPD1 × 2 + HPA1 handshake packets."""
+        if self.audio_ref is None:
+            return []
+        
+        self.queue_hpd1_hpa1(self.audio_ref)
+        packets = self.get_pending_packets()
+        self.queue_hpd1_hpa1(self.audio_ref)  # Reset for next time
+        return packets
+    
+    def build_start_streaming_packets(self) -> list[bytes]:
+        """Build all packets to start streaming."""
+        packets = self.build_hpd1_hpa1_packets()
+        # Add initial NEED to kick off frame delivery
+        need = self.build_need_packet()
+        if need:
+            packets.append(need)
+        return packets
+    
+    def build_stop_streaming_packets(self) -> list[bytes]:
+        """Build teardown packets."""
+        return self.start_teardown()
+    
+    def get_decoder_extradata(self) -> bytes | None:
+        """Get SPS/PPS extradata for decoder."""
+        return self._decoder_extradata
