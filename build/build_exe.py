@@ -267,6 +267,30 @@ def build():
         print("    or place libusb0.dll in C:\\Windows\\System32 manually.")
     # ────────────────────────────────────────────────────────────────────────
 
+    # ── Bundle FFmpeg DLLs (exact match to AnyMiro) ────────────────────────
+    # AnyMiro includes: avcodec-60.dll, avformat-60.dll, avutil-58.dll,
+    # swresample-4.dll, swscale-7.dll
+    # We bundle these for fallback if PyAV's bundled FFmpeg has issues
+    _ffmpeg_dlls = [
+        "avcodec-60.dll",
+        "avformat-60.dll", 
+        "avutil-58.dll",
+        "swresample-4.dll",
+        "swscale-7.dll",
+    ]
+    _ffmpeg_path = os.path.join(PROJECT_ROOT, "assets", "ffmpeg")
+    _bundled_ffmpeg = 0
+    for _dll in _ffmpeg_dlls:
+        _src = os.path.join(_ffmpeg_path, _dll)
+        if os.path.exists(_src):
+            args.append(f"--add-binary={_src}{os.pathsep}.")
+            _bundled_ffmpeg += 1
+    if _bundled_ffmpeg > 0:
+        print(f"  FFmpeg      : {_bundled_ffmpeg} DLLs bundled (like AnyMiro)")
+    else:
+        print("  FFmpeg      : Using PyAV bundled FFmpeg (no external DLLs)")
+    # ────────────────────────────────────────────────────────────────────────
+
     PyInstaller.__main__.run(args)
 
     exe_path = os.path.join(PROJECT_ROOT, "dist", "MIRANCE", "MIRANCE.exe")
