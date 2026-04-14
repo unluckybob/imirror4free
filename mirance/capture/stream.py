@@ -559,28 +559,32 @@ class ValeriaStreamCapture(CaptureBackend):
         # The iPhone expects us to echo its PING before it sends CWPA.
         logger.info("Waiting for PING from iPhone...")
         
-        # v2.4 §A5: iPhone sends PING first, we echo it back
+        # v2.4: Try reading first, but also be ready to send initial PING
         # The iPhone may need a brief moment after usbmux session is ready
-        # before it can accept writes on the QT endpoint. Add small delay.
-        time.sleep(0.5)  # Wait for iPhone to be ready
+        time.sleep(0.3)
         
-        # Drain any pending data on IN endpoint - iPhone may have sent PING already
+        # Drain any pending data on IN endpoint
         try:
-            drain = self._endpoint.read(size=512, timeout=2000)  # 2s to wait for PING
+            drain = self._endpoint.read(size=512, timeout=1500)  # 1.5s to wait for PING
             if drain:
                 logger.info(f"Received PING from iPhone ({len(drain)} bytes)")
                 read_buffer = bytearray(drain)
+                # We got PING - now echo it back
+                try:
+                    self._endpoint.write(build_ping())
+                    logger.info("PING echo sent successfully")
+                except Exception as _e:
+                    logger.warning("PING echo failed: %s", _e)
         except Exception as _drain:
             read_buffer = bytearray()
-        
-        if not read_buffer:
-            read_buffer = bytearray()
-            
-        # After receiving iPhone's PING, echo it back
-        try:
-            self._endpoint.write(build_ping())
-        except Exception as _ping_ex:
-            logger.warning("PING echo send failed: %s — will retry in loop", _ping_ex)
+            # No PING received - iPhone might be waiting for us to initiate
+            # Try sending PING first (as pcap shows host initiates)
+            logger.info("No PING from iPhone - sending initial PING...")
+            try:
+                self._endpoint.write(build_ping())
+                logger.info("Initial PING sent successfully")
+            except Exception as _e:
+                logger.warning("Initial PING send failed: %s", _e)
 
         _ping_wait_start = time.monotonic()
         _ping_retry_sent = False
