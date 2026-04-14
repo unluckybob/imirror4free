@@ -560,6 +560,22 @@ class ValeriaStreamCapture(CaptureBackend):
         # so when the iPhone echoes back, we echo it again (frame 7007)
         # and the iPhone proceeds to send SYNC(cwpa).
         logger.info("Sending initial PING to iPhone...")
+        
+        # v2.4 fix: Drain any pending data on IN endpoint before first write
+        # The iPhone may have already sent PING while we were setting up
+        try:
+            # Quick non-blocking read to drain any pending PING
+            drain = self._endpoint.read(size=512, timeout=100)
+            if drain:
+                logger.debug(f"Drained {len(drain)} bytes before PING")
+                # Add to read_buffer for processing in main loop
+                read_buffer = bytearray(drain)  # Initialize buffer with drained data
+        except Exception as _drain:
+            read_buffer = bytearray()  # Normal case - no data waiting
+        
+        if not read_buffer:
+            read_buffer = bytearray()
+            
         try:
             self._endpoint.write(build_ping())
         except Exception as _ping_ex:
