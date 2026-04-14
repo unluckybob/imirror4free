@@ -577,6 +577,19 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.debug(f"Using IN endpoint: 0x{self._endpoint._ep_in.bEndpointAddress:02x}")
         logger.debug(f"PING packet: {build_ping().hex()}")
         
+        # PCAP shows AnyMiro sends "FE" packets before PING (see packets 2969-2972 in PCAP)
+        # These are: bytes [00, 05, FE, 00, 00, 00, 00] to endpoint 5 OUT
+        # This seems to "wake up" the endpoint before protocol starts
+        logger.debug("Sending FE wake-up packets per PCAP...")
+        fe_packet = bytes([0x00, 0x05, 0xfe, 0x00, 0x00, 0x00, 0x00])
+        try:
+            for i in range(2):
+                self._endpoint.write(fe_packet, timeout=500)
+                logger.debug(f"FE packet {i+1} sent")
+                time.sleep(0.05)
+        except Exception as _e:
+            logger.debug(f"FE packets failed (may be normal): {_e}")
+        
         # Try sending PING with stall clearing
         ping_sent = False
         for attempt in range(5):  # More attempts
@@ -588,13 +601,24 @@ class ValeriaStreamCapture(CaptureBackend):
                 except:
                     pass
                     
-                # Write PING
-                written = self._endpoint.write(build_ping(), timeout=3000)
-                logger.info(f"PING sent successfully ({written} bytes, attempt {attempt+1})")
+                # Try direct endpoint write with more debugging
+                ping_data = build_ping()
+                logger.debug(f"Attempting write: {len(ping_data)} bytes, data={ping_data.hex()}")
+                
+                # Use lower-level API to get more error info
+                ep = self._endpoint._ep_out
+                dev = self._endpoint._dev
+                
+                # Try writing using the device directly
+                result = dev.write(ep.bEndpointAddress, ping_data, 3000)
+                logger.info(f"PING sent successfully ({result} bytes, attempt {attempt+1})")
                 ping_sent = True
                 break
             except Exception as _e:
                 logger.warning(f"PING send attempt {attempt+1}: {_e}")
+                # Try to get more details
+                import traceback
+                logger.debug(f"Full traceback: {traceback.format_exc()}")
                 time.sleep(0.3)  # Short delay between attempts
         
         if not ping_sent:
