@@ -549,37 +549,38 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.info("Valeria protocol loop starting...")
 
         # ── PING handshake ────────────────────────────────────────────
-        # MIRANCE USB pcap confirms the HOST initiates the PING exchange:
+        # v2.4 §A5: iPhone SENDS FIRST PING, host echoes it back
         #   Frame 6644: host → iPhone  PING (10 00 00 00 67 6e 69 70 00 00 00 00 01 00 00 00)
         #   Frame 7003: iPhone → host  PING (echo, ~1 s later)
         #   Frame 7007: host → iPhone  PING (echo of echo via _handle_ping)
         #   Frame 7008: iPhone → host  SYNC(cwpa)  ← streaming begins
         #
-        # We send one PING immediately on interface claim, then
-        # ValeriaSession._handle_ping() echoes every PING we receive —
-        # so when the iPhone echoes back, we echo it again (frame 7007)
-        # and the iPhone proceeds to send SYNC(cwpa).
-        logger.info("Sending initial PING to iPhone...")
+        # Wait for iPhone's PING first, then echo it back.
+        # The iPhone expects us to echo its PING before it sends CWPA.
+        logger.info("Waiting for PING from iPhone...")
         
-        # v2.4 fix: Drain any pending data on IN endpoint before first write
-        # The iPhone may have already sent PING while we were setting up
+        # v2.4 §A5: iPhone sends PING first, we echo it back
+        # The iPhone may need a brief moment after usbmux session is ready
+        # before it can accept writes on the QT endpoint. Add small delay.
+        time.sleep(0.5)  # Wait for iPhone to be ready
+        
+        # Drain any pending data on IN endpoint - iPhone may have sent PING already
         try:
-            # Quick non-blocking read to drain any pending PING
-            drain = self._endpoint.read(size=512, timeout=100)
+            drain = self._endpoint.read(size=512, timeout=2000)  # 2s to wait for PING
             if drain:
-                logger.debug(f"Drained {len(drain)} bytes before PING")
-                # Add to read_buffer for processing in main loop
-                read_buffer = bytearray(drain)  # Initialize buffer with drained data
+                logger.info(f"Received PING from iPhone ({len(drain)} bytes)")
+                read_buffer = bytearray(drain)
         except Exception as _drain:
-            read_buffer = bytearray()  # Normal case - no data waiting
+            read_buffer = bytearray()
         
         if not read_buffer:
             read_buffer = bytearray()
             
+        # After receiving iPhone's PING, echo it back
         try:
             self._endpoint.write(build_ping())
         except Exception as _ping_ex:
-            logger.warning("Initial PING send failed: %s — will retry in loop", _ping_ex)
+            logger.warning("PING echo send failed: %s — will retry in loop", _ping_ex)
 
         _ping_wait_start = time.monotonic()
         _ping_retry_sent = False
@@ -587,18 +588,26 @@ class ValeriaStreamCapture(CaptureBackend):
         _cwpa_timeout = 30.0  # seconds to wait for CWPA after PING
 
         while self._running:
-            # Retry PING once if no response after 5 s (rare, but guards against
-            # a dropped initial write due to a transient endpoint stall).
+            # If we haven't received PING yet, wait for it
+            # The iPhone sends PING first, we echo it back
             if (not self._streaming_started
-                    and not _ping_retry_sent
+                    and not self._handshake_done.is_set()
+                    and not read_buffer):
+                try:
+                    data = self._endpoint.read(size=512, timeout=1000)
+                    if data:
+                        read_buffer.extend(data)
+                        logger.info(f"Received data while waiting for PING ({len(data)} bytes)")
+                except:
+                    pass  # No data yet, continue
+            
+            # If we still haven't received PING after 5s, the iPhone might be
+            # waiting for us to establish usbmux session first. Retry reading.
+            if (not self._streaming_started
                     and not self._handshake_done.is_set()
                     and time.monotonic() - _ping_wait_start > 5.0):
-                logger.info("No PING echo from iPhone after 5 s — retrying PING")
-                try:
-                    self._endpoint.write(build_ping())
-                    _ping_retry_sent = True
-                except Exception as _e:
-                    logger.warning("PING retry send failed: %s", _e)
+                logger.info("No PING from iPhone after 5s — retrying read...")
+                _ping_wait_start = time.monotonic()
             # ── CWPA watchdog ────────────────────────────────────────
             # If PING completed but iPhone sent no CWPA within 30 s, resend PING
             # to restart the handshake.  This handles the case where the first PING
