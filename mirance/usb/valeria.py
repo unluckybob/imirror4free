@@ -179,23 +179,37 @@ class ValeriaSession(ValeriaEngine):
         """Register audio sample callback."""
         self._on_audio_callback = callback
     
-    def handle_packet(self, packet: bytes) -> bytes | None:
-        """Handle any incoming packet and return reply."""
-        if len(packet) < 16:
+    def handle_packet(self, packet) -> bytes | None:
+        """Handle any incoming packet and return reply.
+        
+        Accepts either bytes or Packet object from stream.py.
+        """
+        # Handle Packet object from stream.py
+        if hasattr(packet, 'data'):
+            # It's a Packet object - use its data attribute
+            pkt_bytes = packet.data
+            magic = packet.magic
+        elif isinstance(packet, bytes):
+            # It's raw bytes
+            if len(packet) < 16:
+                return None
+            # Parse header: length(4) + magic(4) + correlation(8)
+            pkt_bytes = packet
+            magic = packet[4:8]
+        else:
             return None
         
-        # Parse header: length(4) + magic(4) + correlation(8)
-        total_len = int.from_bytes(packet[0:4], 'little')
-        magic = packet[4:8]
-        correlation = packet[8:16]
-        payload = packet[16:]
-        
-        if magic == b"nysa":  # ASYN
-            sub = payload[16:20] if len(payload) >= 20 else b""
-            return self.handle_asyn(sub, payload[20:])
-        elif magic == b"cnys":  # SYNC
-            sub = payload[12:16] if len(payload) >= 16 else b""
-            return self.handle_sync(sub, correlation, payload)
+        # Extract correlation ID and sub-type based on packet type
+        if magic == b"nysa" or magic == b"ASYN":  # ASYN
+            correlation = pkt_bytes[8:16] if len(pkt_bytes) >= 16 else b"\x00" * 8
+            sub = pkt_bytes[16:20] if len(pkt_bytes) >= 20 else b""
+            return self.handle_asyn(sub, pkt_bytes[20:] if len(pkt_bytes) > 20 else b"")
+        elif magic == b"cnys" or magic == b"SYNC":  # SYNC
+            correlation = pkt_bytes[8:16] if len(pkt_bytes) >= 16 else b"\x00" * 8
+            sub = pkt_bytes[12:16] if len(pkt_bytes) >= 16 else b""
+            return self.handle_sync(sub, correlation, pkt_bytes)
+        elif magic == b"gnip" or magic == b"PING":  # PING - echo it back
+            return build_ping()
         
         return None
     
