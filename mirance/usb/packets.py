@@ -105,7 +105,7 @@ def build_asyn_hpd1() -> bytes:
     main = (
         b"tcid\x5a\x00\x00\x00"  # dict size 90
         b"vyek\x0b\x00\x00\x00"  # key size 11
-        b"krtsValeriavlub\x01"   # False
+        b"krtsValeriavlub\x01"   # True = enable 4:4:4 chroma (better quality)
         b"vyek\x1b\x00\x00\x00"  # key size 27
         b"krtsHEVCDecoderSupports444vlub\x01"
         b"vyek\x0d\x00\x00\x00"  # key size 13

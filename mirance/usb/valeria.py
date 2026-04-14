@@ -6,7 +6,8 @@ from .packets import (
     build_rply, build_skew_reply, build_time_reply,
     build_rply, build_time_reply, 
     build_afmt_rply, build_asyn_hpd1, build_asyn_hpa1, 
-    build_asyn_need, build_asyn_hpd0, build_asyn_hpa0
+    build_asyn_need, build_asyn_hpd0, build_asyn_hpa0,
+    Magic
 )
 
 logger = logging.getLogger(__name__)
