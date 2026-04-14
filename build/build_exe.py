@@ -317,6 +317,22 @@ def build():
         print(f"  usbmuxd.exe : NOT FOUND - will use Python usbmux implementation")
     # ────────────────────────────────────────────────────────────────────────
 
+    # ── Bundle iosusb.exe (exact copy from AnyMiro) ────────────────────────
+    # iosusb.exe is the iOS USB mirroring executable
+    _iosusb = os.path.join(PROJECT_ROOT, "assets", "iosusb.exe")
+    if os.path.exists(_iosusb):
+        args.append(f"--add-binary={_iosusb}{os.pathsep}.")
+        print(f"  iosusb.exe  : Bundled (like AnyMiro)")
+    # ────────────────────────────────────────────────────────────────────────
+
+    # ── Bundle driver.exe (exact copy from AnyMiro) ────────────────────────
+    # driver.exe is the driver installer
+    _driver = os.path.join(PROJECT_ROOT, "assets", "driver.exe")
+    if os.path.exists(_driver):
+        args.append(f"--add-binary={_driver}{os.pathsep}.")
+        print(f"  driver.exe  : Bundled (like AnyMiro)")
+    # ────────────────────────────────────────────────────────────────────────
+
     PyInstaller.__main__.run(args)
 
     exe_path = os.path.join(PROJECT_ROOT, "dist", "MIRANCE", "MIRANCE.exe")
