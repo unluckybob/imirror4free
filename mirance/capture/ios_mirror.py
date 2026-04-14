@@ -18,8 +18,6 @@ from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 from enum import IntEnum
 
-import numpy as np
-
 from mirance.capture.base import CaptureBackend
 from mirance.usb.usbmux import UsbmuxProtocol
 from mirance.config import config
