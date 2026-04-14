@@ -185,29 +185,28 @@ class ValeriaSession(ValeriaEngine):
         Accepts either bytes or Packet object from stream.py.
         """
         # Handle Packet object from stream.py
-        if hasattr(packet, 'data'):
-            # It's a Packet object - use its data attribute
-            pkt_bytes = packet.data
+        if hasattr(packet, 'payload'):
+            # It's a Packet object - extract fields directly
             magic = packet.magic
+            correlation_id = packet.correlation_id
+            payload = packet.payload
         elif isinstance(packet, bytes):
-            # It's raw bytes
+            # It's raw bytes - parse header
             if len(packet) < 16:
                 return None
-            # Parse header: length(4) + magic(4) + correlation(8)
-            pkt_bytes = packet
             magic = packet[4:8]
+            correlation_id = packet[8:16]
+            payload = packet[16:]
         else:
             return None
         
-        # Extract correlation ID and sub-type based on packet type
+        # Route by magic bytes
         if magic == b"nysa" or magic == b"ASYN":  # ASYN
-            correlation = pkt_bytes[8:16] if len(pkt_bytes) >= 16 else b"\x00" * 8
-            sub = pkt_bytes[16:20] if len(pkt_bytes) >= 20 else b""
-            return self.handle_asyn(sub, pkt_bytes[20:] if len(pkt_bytes) > 20 else b"")
+            sub = payload[0:4] if len(payload) >= 4 else b""
+            return self.handle_asyn(sub, payload[4:] if len(payload) > 4 else b"")
         elif magic == b"cnys" or magic == b"SYNC":  # SYNC
-            correlation = pkt_bytes[8:16] if len(pkt_bytes) >= 16 else b"\x00" * 8
-            sub = pkt_bytes[12:16] if len(pkt_bytes) >= 16 else b""
-            return self.handle_sync(sub, correlation, pkt_bytes)
+            sub = payload[12:16] if len(payload) >= 16 else b""
+            return self.handle_sync(sub, correlation_id, payload)
         elif magic == b"gnip" or magic == b"PING":  # PING - echo it back
             return build_ping()
         
