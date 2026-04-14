@@ -635,6 +635,12 @@ class USBEndpoint:
             logger.debug("set_interface_altsetting: %s (non-fatal)", e)
 
         # Find bulk IN and OUT endpoints
+        # List all endpoints first to debug
+        all_eps = list(self._interface.endpoints())
+        logger.debug(f"Interface has {len(all_eps)} endpoints:")
+        for ep in all_eps:
+            logger.debug(f"  Endpoint: 0x{ep.bEndpointAddress:02x}, max={ep.wMaxPacketSize}")
+        
         self._ep_in = usb.util.find_descriptor(
             self._interface,
             custom_match=lambda e: (
@@ -662,6 +668,19 @@ class USBEndpoint:
             self._ep_in.bEndpointAddress, self._ep_in.wMaxPacketSize,
             self._ep_out.bEndpointAddress, self._ep_out.wMaxPacketSize,
         )
+        
+        # Immediately clear any stalled endpoints - critical for first write
+        logger.debug("Clearing endpoint stalls after claiming interface...")
+        for _ep_obj, _ep_label in (
+            (self._ep_in, "IN"),
+            (self._ep_out, "OUT"),
+        ):
+            try:
+                import usb.control as _usb_ctrl
+                _usb_ctrl.clear_stall(self._dev, _ep_obj)
+                logger.debug(f"Cleared stall on {_ep_label} endpoint 0x{_ep_obj.bEndpointAddress:02x}")
+            except Exception as _cs_err:
+                logger.debug(f"clear_stall {_ep_label} (may be normal): {_cs_err}")
 
         # Clear any halt/stall on both IN and OUT endpoints.
         # After a [Errno 32] Pipe error the OUT endpoint can remain STALLed,
