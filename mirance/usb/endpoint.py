@@ -752,9 +752,18 @@ class USBEndpoint:
             Number of bytes written.
         """
         if not self._ep_out:
+            logger.error("No OUT endpoint available for write")
             return 0
-
-        return self._ep_out.write(data, timeout=timeout)
+        
+        logger.debug(f"Writing {len(data)} bytes to endpoint 0x{self._ep_out.bEndpointAddress:02x}")
+        
+        try:
+            result = self._ep_out.write(data, timeout=timeout)
+            logger.debug(f"Write successful: {result} bytes")
+            return result
+        except Exception as e:
+            logger.error(f"USB write failed: {e}")
+            raise
 
     def close(self) -> None:
         """Release the USB interface and clean up."""

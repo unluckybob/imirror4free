@@ -555,63 +555,50 @@ class ValeriaStreamCapture(CaptureBackend):
         # So we send PING first and wait for iPhone's SYNC response.
         logger.info("Starting PING handshake - sending first...")
         
-        # v2.4: Try reading first, but also be ready to send initial PING
-        # The iPhone may need a brief moment after usbmux session is ready
-        time.sleep(0.3)
+        # v2.4: Wait longer for device to be ready after claiming
+        # The iPhone needs time to be ready for bulk OUT transfers
+        time.sleep(1.0)  # Increased from 0.3s
         
-        # Drain any pending data on IN endpoint
+        # Try reading first to see if iPhone sends anything
         try:
-            drain = self._endpoint.read(size=512, timeout=1500)  # 1.5s to wait for PING
-            if drain:
-                logger.info(f"Received PING from iPhone ({len(drain)} bytes)")
+            drain = self._endpoint.read(size=512, timeout=2000)  # 2s wait
+            if drain and len(drain) > 0:
+                logger.info(f"Received data from iPhone ({len(drain)} bytes): {drain[:32].hex()}")
                 read_buffer = bytearray(drain)
-                # We got PING - now echo it back
-                try:
-                    self._endpoint.write(build_ping())
-                    logger.info("PING echo sent successfully")
-                except Exception as _e:
-                    logger.warning("PING echo failed: %s", _e)
-        except Exception as _drain:
+        except Exception as _e:
+            logger.debug(f"No data received on first read attempt: {_e}")
             read_buffer = bytearray()
-            # No PING received - iPhone might be waiting for us to initiate
-            # Try sending PING first (as pcap shows host initiates)
-            logger.info("No PING from iPhone - sending initial PING...")
-            
-            # PCAP shows AnyMiro sends some 27-byte probe packets before PING
-            # Let's send a few probe packets first to "wake up" the endpoint
-            # These are empty/short bulk transfers that prime the USB pipe
-            probe_packet = bytes(16)  # 16 byte probe
-            for probe_attempt in range(3):
+        
+        # Now try sending PING
+        logger.info("Sending initial PING...")
+        
+        # Debug: Log the endpoint we're using
+        logger.debug(f"Using OUT endpoint: 0x{self._endpoint._ep_out.bEndpointAddress:02x}")
+        logger.debug(f"Using IN endpoint: 0x{self._endpoint._ep_in.bEndpointAddress:02x}")
+        logger.debug(f"PING packet: {build_ping().hex()}")
+        
+        # Try sending PING with stall clearing
+        ping_sent = False
+        for attempt in range(5):  # More attempts
+            try:
+                # Clear stall before each write
                 try:
-                    # Send probe packet first
-                    self._endpoint.write(probe_packet, timeout=500)
-                    logger.debug(f"Probe {probe_attempt+1} sent")
-                    time.sleep(0.1)  # Brief delay between probes
-                except Exception as _e:
-                    logger.debug(f"Probe {probe_attempt+1} failed: {_e}")
-            
-            # Now try PING with retries and stall clearing
-            ping_sent = False
-            for attempt in range(3):
-                try:
-                    # Clear stall before each write attempt
-                    try:
-                        import usb.control as _usb_ctrl
-                        _usb_ctrl.clear_stall(self._endpoint._dev, self._endpoint._ep_out)
-                        logger.debug(f"Cleared stall on OUT endpoint")
-                    except Exception as _cs:
-                        pass  # Non-fatal
+                    import usb.control as _usb_ctrl
+                    _usb_ctrl.clear_stall(self._endpoint._dev, self._endpoint._ep_out)
+                except:
+                    pass
                     
-                    self._endpoint.write(build_ping(), timeout=2000)
-                    logger.info(f"Initial PING sent successfully (attempt {attempt+1})")
-                    ping_sent = True
-                    break
-                except Exception as _e:
-                    logger.warning(f"PING send attempt {attempt+1} failed: {_e}")
-                    time.sleep(0.5)  # Brief delay before retry
-            
-            if not ping_sent:
-                logger.warning("All PING send attempts failed")
+                # Write PING
+                written = self._endpoint.write(build_ping(), timeout=3000)
+                logger.info(f"PING sent successfully ({written} bytes, attempt {attempt+1})")
+                ping_sent = True
+                break
+            except Exception as _e:
+                logger.warning(f"PING send attempt {attempt+1}: {_e}")
+                time.sleep(0.3)  # Short delay between attempts
+        
+        if not ping_sent:
+            logger.warning("All PING send attempts failed - will continue trying in loop")
 
         _ping_wait_start = time.monotonic()
         _ping_retry_sent = False
