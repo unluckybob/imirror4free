@@ -549,15 +549,11 @@ class ValeriaStreamCapture(CaptureBackend):
         logger.info("Valeria protocol loop starting...")
 
         # ── PING handshake ────────────────────────────────────────────
-        # v2.4 §A5: iPhone SENDS FIRST PING, host echoes it back
-        #   Frame 6644: host → iPhone  PING (10 00 00 00 67 6e 69 70 00 00 00 00 01 00 00 00)
-        #   Frame 7003: iPhone → host  PING (echo, ~1 s later)
-        #   Frame 7007: host → iPhone  PING (echo of echo via _handle_ping)
-        #   Frame 7008: iPhone → host  SYNC(cwpa)  ← streaming begins
-        #
-        # Wait for iPhone's PING first, then echo it back.
-        # The iPhone expects us to echo its PING before it sends CWPA.
-        logger.info("Waiting for PING from iPhone...")
+        # PCAP analysis shows HOST sends PING first (not iPhone):
+        #   Pkt 2973: HOST → iPhone PING (16 bytes)
+        #   Pkt 2984: iPhone → HOST SYNC (36 bytes with CWPA)
+        # So we send PING first and wait for iPhone's SYNC response.
+        logger.info("Starting PING handshake - sending first...")
         
         # v2.4: Try reading first, but also be ready to send initial PING
         # The iPhone may need a brief moment after usbmux session is ready
