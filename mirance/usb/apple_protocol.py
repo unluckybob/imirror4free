@@ -120,6 +120,49 @@ class AppleUSBAudio:
         return header + struct.pack("<I", checksum) + self.data
 
 
+@dataclass
+class AppleUSBMsgModel:
+    """
+    Exact replica of AnyMiro's AppleUSBMsgModel.
+    
+    This is the base message model for all protocol messages.
+    Found in AnyMiro's Core.MirroringConnection.Model.AppleUSBMsgModel
+    """
+    message_type: int = 0
+    timestamp: int = 0
+    payload: bytes = b""
+    
+    HEADER_SIZE = 20  # 4 (magic) + 4 (type) + 8 (timestamp) + 4 (payload_len)
+    
+    def serialize(self) -> bytes:
+        """Serialize message exactly like AnyMiro's AppleUSBMsgModel."""
+        header = struct.pack(
+            "<4sIIQ",
+            PROTOCOL_MAGIC,
+            self.message_type,
+            self.timestamp,
+            len(self.payload)
+        )
+        checksum = sum(header + self.payload) & 0xFFFFFFFF
+        return header + struct.pack("<I", checksum) + self.payload
+    
+    @classmethod
+    def deserialize(cls, data: bytes) -> Optional['AppleUSBMsgModel']:
+        """Deserialize message exactly like AnyMiro."""
+        if len(data) < cls.HEADER_SIZE:
+            return None
+        try:
+            magic, msg_type, timestamp, payload_len = struct.unpack(
+                "<4sIIQ", data[:20]
+            )
+            if magic != PROTOCOL_MAGIC:
+                return None
+            payload = data[24:payload_len + 24] if payload_len > 0 else b""
+            return cls(msg_type, timestamp, payload)
+        except:
+            return None
+
+
 class AppleUSBConnection:
     """Exact replica of AnyMiro's AppleUSBConnection."""
 
