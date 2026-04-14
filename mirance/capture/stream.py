@@ -576,11 +576,29 @@ class ValeriaStreamCapture(CaptureBackend):
             # No PING received - iPhone might be waiting for us to initiate
             # Try sending PING first (as pcap shows host initiates)
             logger.info("No PING from iPhone - sending initial PING...")
-            try:
-                self._endpoint.write(build_ping())
-                logger.info("Initial PING sent successfully")
-            except Exception as _e:
-                logger.warning("Initial PING send failed: %s", _e)
+            
+            # Try multiple times with stall clearing between attempts
+            ping_sent = False
+            for attempt in range(3):
+                try:
+                    # Clear stall before each write attempt
+                    try:
+                        import usb.control as _usb_ctrl
+                        _usb_ctrl.clear_stall(self._endpoint._dev, self._endpoint._ep_out)
+                        logger.debug(f"Cleared stall on OUT endpoint")
+                    except Exception as _cs:
+                        pass  # Non-fatal
+                    
+                    self._endpoint.write(build_ping(), timeout=2000)
+                    logger.info(f"Initial PING sent successfully (attempt {attempt+1})")
+                    ping_sent = True
+                    break
+                except Exception as _e:
+                    logger.warning(f"PING send attempt {attempt+1} failed: {_e}")
+                    time.sleep(0.5)  # Brief delay before retry
+            
+            if not ping_sent:
+                logger.warning("All PING send attempts failed")
 
         _ping_wait_start = time.monotonic()
         _ping_retry_sent = False
