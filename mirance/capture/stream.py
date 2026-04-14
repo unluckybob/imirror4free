@@ -577,7 +577,20 @@ class ValeriaStreamCapture(CaptureBackend):
             # Try sending PING first (as pcap shows host initiates)
             logger.info("No PING from iPhone - sending initial PING...")
             
-            # Try multiple times with stall clearing between attempts
+            # PCAP shows AnyMiro sends some 27-byte probe packets before PING
+            # Let's send a few probe packets first to "wake up" the endpoint
+            # These are empty/short bulk transfers that prime the USB pipe
+            probe_packet = bytes(16)  # 16 byte probe
+            for probe_attempt in range(3):
+                try:
+                    # Send probe packet first
+                    self._endpoint.write(probe_packet, timeout=500)
+                    logger.debug(f"Probe {probe_attempt+1} sent")
+                    time.sleep(0.1)  # Brief delay between probes
+                except Exception as _e:
+                    logger.debug(f"Probe {probe_attempt+1} failed: {_e}")
+            
+            # Now try PING with retries and stall clearing
             ping_sent = False
             for attempt in range(3):
                 try:
