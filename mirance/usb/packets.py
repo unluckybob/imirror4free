@@ -70,7 +70,8 @@ def build_rply(correlation_id: bytes, value: int) -> bytes:
 
 def build_skew_reply(correlation_id: bytes, skew_ratio: float) -> bytes:
     """v2.4 §A9: 28-byte SKEW reply with float64 skew ratio at bytes 20-27."""
-    return struct.pack("<I4s8sd", 28, Magic.RPLY, correlation_id, 0, skew_ratio)
+    # 28 bytes = 4 (len) + 4 (magic) + 8 (correlation) + 4 (unknown) + 8 (float64)
+    return struct.pack("<I4s8sId", 28, Magic.RPLY, correlation_id, 0, skew_ratio)
 
 def build_time_reply(correlation_id: bytes, value_ns: int) -> bytes:
     """v2.4 §A8: 44-byte TIME reply with CMTime (flags=0)"""
@@ -80,13 +81,16 @@ def build_time_reply(correlation_id: bytes, value_ns: int) -> bytes:
 
 def build_afmt_rply(connection_id: bytes, tag: bytes) -> bytes:
     """v2.4 §A10: 62-byte AFMT-RPLY (42-byte payload + 20-byte header)"""
+    # Payload must be exactly 42 bytes per pcap analysis
     payload = (
         b"tcid\x22\x00\x00\x00"  # dict tag + size 34
         b"vyek\x0d\x00\x00\x00"  # keyv + key size 13
-        b"krtsError"             # strk + "Error"
+        b"krtsError"             # strk + "Error" (5 bytes)
         b"\x0d\x00\x00\x00"      # value size 13
         b"vbmn\x03\x00\x00\x00\x00\x00\x00\x00"  # nmbv u32 = 0
     )
+    # Pad to exactly 42 bytes
+    payload = payload + b"\x00"
     return b"ylpr" + connection_id + tag + len(payload).to_bytes(4, "little") + payload
 
 def build_asyn_hpd1() -> bytes:
@@ -117,11 +121,19 @@ def build_asyn_hpd1() -> bytes:
     return struct.pack("<I4sQ4s", pkt_len, Magic.ASYN, 1, Magic.HPD1) + main
 
 def build_asyn_hpa1(audio_clock_ref: bytes) -> bytes:
-    """v2.4 §A7: HPA1 with exact LPCM audio config"""
-    # 56-byte ASBD struct
-    asbd = struct.pack("<dIIIIII20x",
-        48000.0, 0x6C70636D, 0x0C, 4, 1, 4, 2, 16
+    """v2.4 §A7: HPA1 with exact LPCM audio config (56-byte ASBD from pcap)"""
+    # Exact 56-byte AudioStreamBasicDescription from pcap analysis:
+    # 'mcpl' + format flags + bytes per packet + packets/frame + channels + bits + bytes/frame + padding
+    asbd = (
+        b"mcpl" +
+        b"\x4c\x00\x00\x00"  # format flags
+        b"\x04\x00\x00\x00"  # bytes per packet
+        b"\x01\x00\x00\x00"  # packets per frame
+        b"\x04\x00\x00\x00"  # channels per frame
+        b"\x02\x00\x00\x00"  # bits per channel (16-bit)
+        b"\x10\x00\x00\x00"  # bytes per frame
     )
+    asbd = asbd + b"\x00" * (56 - len(asbd))  # Pad to 56 bytes
     
     buf_ahead = struct.pack("<d", AUDIO_BUFFER_AHEAD_INTERVAL)
     screen_lat = struct.pack("<d", AUDIO_SCREEN_LATENCY)

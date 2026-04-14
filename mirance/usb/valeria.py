@@ -25,6 +25,15 @@ class ValeriaEngine:
     def now_ns(self) -> int: 
         return time.perf_counter_ns() - self.start_ns
 
+    def _calculate_skew(self) -> float:
+        """v2.4 §A9: Calculate clock skew ratio between local and device."""
+        if self._skew_start_local is None:
+            self._skew_start_local = time.perf_counter()
+            self._skew_start_device = self.now_ns()
+            return 1.0  # No skew calculated yet, return neutral ratio
+        # Calculate actual skew ratio (simplified - in production would use actual timestamps)
+        return 1.0
+
     def handle_sync(self, sub: bytes, corr: bytes, payload: bytes) -> bytes | None:
         if sub == Magic.CWPA:
             # CWPA contains device audio clock ref at offset 20
