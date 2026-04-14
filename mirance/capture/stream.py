@@ -600,7 +600,14 @@ class ValeriaStreamCapture(CaptureBackend):
                     _usb_ctrl.clear_stall(self._endpoint._dev, self._endpoint._ep_out)
                 except:
                     pass
-                    
+                
+                # Try resetting the device before write (helps with libusb timing)
+                try:
+                    self._endpoint._dev.reset()
+                    logger.debug("Device reset successful before write attempt")
+                except Exception as _reset_err:
+                    logger.debug(f"Device reset (optional): {_reset_err}")
+                
                 # Try direct endpoint write with more debugging
                 ping_data = build_ping()
                 logger.debug(f"Attempting write: {len(ping_data)} bytes, data={ping_data.hex()}")

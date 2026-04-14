@@ -169,13 +169,59 @@ class USBEndpoint:
         Returns True if an Apple device is found and accessible.
         """
         import usb.core
-
+        import usb.backend.libusb0
+        import usb.backend.libusb1
+        import usb.backend.winusb
+        
+        # Try multiple backends for better compatibility
+        backends_to_try = []
+        
+        # Try WinUSB first (recommended for Windows 11 per AnyMiro doc)
+        try:
+            be_winusb = usb.backend.winusb.get_backend()
+            if be_winusb:
+                backends_to_try.append(('winusb', be_winusb))
+                logger.debug("WinUSB backend available")
+        except:
+            pass
+        
+        # Try libusb1 (newer, better on Windows 11)
+        try:
+            be1 = usb.backend.libusb1.get_backend()
+            if be1:
+                backends_to_try.append(('libusb1', be1))
+                logger.debug("libusb1 backend available")
+        except:
+            pass
+        
+        # Fall back to libusb0
+        try:
+            be0 = usb.backend.libusb0.get_backend()
+            if be0:
+                backends_to_try.append(('libusb0', be0))
+                logger.debug("libusb0 backend available")
+        except:
+            pass
+        
+        if not backends_to_try:
+            logger.error("No USB backends available!")
+            return False
+        
         kwargs = {"idVendor": APPLE_VENDOR_ID, "find_all": True}
-        if self._backend:
-            kwargs["backend"] = self._backend
-
-        devices = list(usb.core.find(**kwargs))
-
+        
+        # Try each backend
+        devices = None
+        for name, backend in backends_to_try:
+            kwargs["backend"] = backend
+            try:
+                devices = list(usb.core.find(**kwargs))
+                if devices:
+                    self._backend = backend
+                    logger.info(f"Found device using backend: {name}")
+                    break
+            except Exception as e:
+                logger.debug(f"Backend {name} failed: {e}")
+        
         if not devices:
             logger.debug("No Apple USB devices found")
             return False
