@@ -1,9 +1,8 @@
 """
 Abstract base class for capture backends.
 
-All capture backends (screenshot, Valeria stream, etc.) inherit from
-this class and implement the same interface so the GUI layer can
-swap backends transparently.
+All capture backends inherit from this class and implement the same 
+interface so the GUI layer can swap backends transparently.
 """
 
 import abc

@@ -110,7 +110,6 @@ def build():
         "--hidden-import=mirance.capture",
         "--hidden-import=mirance.capture.base",
         "--hidden-import=mirance.capture.stream",
-        "--hidden-import=mirance.capture.screenshot",
         "--hidden-import=mirance.capture.recording",
         "--hidden-import=mirance.decode",
         "--hidden-import=mirance.decode.video",

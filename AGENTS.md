@@ -33,19 +33,23 @@ Based on analysis of external files from DropMeFiles:
    - BufferAheadInterval: 73ms
    - ScreenLatency: 40ms
 
+4. **Capture Backends**
+   - Only Valeria (USB QuickTime streaming) - NO screenshot mode
+   - Screenshot mode removed (not part of AnyMiro protocol)
+
 ### Architecture
 
 ```
 mirance/
-├── capture/        # Stream capture backends
-├── config.py        # Configuration
-├── decode/          # Video decoding (FFmpeg/VAAPI/D3D11VA)
-├── gui/             # GUI (PyQt)
-├── render/          # Display rendering
-├── usb/             # USB handling
-│   ├── packets.py   # Protocol packet parsing
-│   └── endpoint.py  # USB endpoint management
-└── protocol.py       # NEW: Protocol implementation
+├── capture/        # Stream capture backends (Valeria only)
+├── config.py       # Configuration
+├── decode/         # Video decoding (FFmpeg/VAAPI/D3D11VA)
+├── gui/            # GUI (PyQt)
+├── render/         # Display rendering
+├── usb/            # USB handling
+│   ├── packets.py  # Protocol packet parsing
+│   └── endpoint.py # USB endpoint management
+└── protocol.py     # Protocol implementation
 ```
 
 ## Notes

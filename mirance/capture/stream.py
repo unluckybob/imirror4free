@@ -70,9 +70,6 @@ class ValeriaStreamCapture(CaptureBackend):
     Receives H.264 video frames directly from the iPhone over USB
     bulk endpoints, decodes them with hardware-accelerated FFmpeg,
     and delivers RGB pixel buffers to the renderer at 30-60 FPS.
-
-    Falls back gracefully to the Screenshot backend if USB raw access
-    is unavailable (e.g., libusb-win32 driver not installed).
     """
 
     def __init__(self):

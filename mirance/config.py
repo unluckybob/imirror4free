@@ -19,9 +19,8 @@ _CONFIG_FILE = os.path.join(_CONFIG_DIR, "settings.json")
 
 class CaptureBackendType(Enum):
     """Which capture backend to use."""
-    AUTO = "auto"               # Try Valeria first, fall back to Screenshot
-    VALERIA = "valeria"         # Force Valeria streaming (30-60 FPS)
-    SCREENSHOT = "screenshot"   # Force screenshot capture (~10 FPS)
+    AUTO = "auto"               # Auto-detect best available
+    VALERIA = "valeria"         # USB QuickTime streaming (30-60 FPS)
 
 
 class DecoderType(Enum):
@@ -57,10 +56,7 @@ class _Config:
         self.min_buffer_ahead_ms: int = 40
         self.max_buffer_ahead_ms: int = 73
 
-        # ── Screenshot backend (Phase 1) ────────────────────────────
-        self.screenshot_target_fps: int = 15
-
-        # ── Valeria stream backend ──────────────────────────────────
+        # ── USB stream backend ───────────────────────────────────────
         # USB bulk I/O tuning (v2.4 §A1: low-latency optimized)
         self.usb_read_chunk_size: int = 4096          # Low latency, OSS-confirmed (v2.4 §A1)
         self.usb_read_concurrent: int = 5              # Concurrent pending reads
@@ -99,6 +95,8 @@ class _Config:
         self.recording_output_dir: str = os.path.join(
             os.path.expanduser("~"), "Videos", "MIRANCE"
         )
+
+        # ── Screenshots ───────────────────────────────────────────────
         self.screenshot_output_dir: str = os.path.join(
             os.path.expanduser("~"), "Pictures", "MIRANCE"
         )

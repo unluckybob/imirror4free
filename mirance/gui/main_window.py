@@ -981,8 +981,6 @@ class MainWindow(QMainWindow):
         try:
             if backend in (CaptureBackendType.AUTO, CaptureBackendType.VALERIA):
                 self._start_valeria_capture(udid)
-            elif backend == CaptureBackendType.SCREENSHOT:
-                self._start_screenshot_capture(udid)
         except Exception as e:
             logger.error("Capture thread error: %s", e)
             self.error_signal.emit("Capture Error", str(e))
@@ -1032,32 +1030,7 @@ class MainWindow(QMainWindow):
             self.status_update.emit("Valeria stream active — receiving from iPhone")
 
         except Exception as e:
-            logger.warning("Valeria capture failed: %s — falling back to screenshot", e)
-            if config.capture_backend == CaptureBackendType.AUTO:
-                self._start_screenshot_capture(udid)
-            else:
-                raise
-
-    def _start_screenshot_capture(self, udid: str) -> None:
-        """Start screenshot capture (fallback)."""
-        try:
-            from mirance.capture.screenshot import ScreenshotCapture
-
-            capture = ScreenshotCapture()
-            self._capture_backend = capture
-
-            def on_frame(frame):
-                if frame.pixels is not None:
-                    self._current_frame = frame.pixels
-                    self.frame_ready.emit(frame.pixels)
-
-            capture.on_frame(on_frame)
-            capture.start(udid)
-
-            self.status_update.emit("Screenshot capture active")
-
-        except Exception as e:
-            logger.error("Screenshot capture failed: %s", e)
+            logger.error("Valeria capture failed: %s", e)
             raise
 
     def _on_stream_ended(self) -> None:
@@ -1552,8 +1525,8 @@ class SettingsDialog(QDialog):
         capture_layout = QFormLayout(capture_group)
 
         self._backend_combo = QComboBox()
-        self._backend_combo.addItems(["Auto", "Valeria (USB Stream)", "Screenshot (Fallback)"])
-        backend_idx = {"auto": 0, "valeria": 1, "screenshot": 2}
+        self._backend_combo.addItems(["Auto", "Valeria (USB Stream)"])
+        backend_idx = {"auto": 0, "valeria": 1}
         self._backend_combo.setCurrentIndex(backend_idx.get(config.capture_backend.value, 0))
         capture_layout.addRow("Capture Backend:", self._backend_combo)
 
@@ -1646,8 +1619,7 @@ class SettingsDialog(QDialog):
 
     def apply_settings(self) -> None:
         """Apply the settings from the dialog to config."""
-        backend_map = {0: CaptureBackendType.AUTO, 1: CaptureBackendType.VALERIA,
-                       2: CaptureBackendType.SCREENSHOT}
+        backend_map = {0: CaptureBackendType.AUTO, 1: CaptureBackendType.VALERIA}
         config.capture_backend = backend_map.get(self._backend_combo.currentIndex(),
                                                   CaptureBackendType.AUTO)
 

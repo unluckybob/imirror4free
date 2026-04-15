@@ -68,7 +68,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--backend",
-        choices=["auto", "valeria", "screenshot"],
+        choices=["auto", "valeria"],
         default="auto",
         help="Capture backend to use (default: auto)",
     )
@@ -190,7 +190,6 @@ def main() -> int:
     backend_map = {
         "auto": CaptureBackendType.AUTO,
         "valeria": CaptureBackendType.VALERIA,
-        "screenshot": CaptureBackendType.SCREENSHOT,
     }
     config.capture_backend = backend_map.get(args.backend, CaptureBackendType.AUTO)
     config.always_on_top = args.always_on_top or config.always_on_top

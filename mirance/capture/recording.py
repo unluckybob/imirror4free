@@ -1,8 +1,7 @@
 """
-Screen Recording & Screenshots.
+Screen Recording.
 
-Records the mirrored iPhone screen to MP4/MKV files and captures
-individual screenshots to PNG/JPEG. Uses PyAV for muxing the
+Records the mirrored iPhone screen to MP4/MKV files. Uses PyAV for muxing the
 H.264 stream directly without re-encoding (zero quality loss).
 
 Features:
