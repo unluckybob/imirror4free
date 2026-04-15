@@ -628,7 +628,11 @@ class MainWindow(QMainWindow):
         
         self._res_combo = QComboBox()
         self._res_combo.addItems(["1920x1080", "1280x720", "1080x1920", "720x1280"])
-        self._res_combo.setCurrentText(f"{config.capture_width}x{config.capture_height}")
+        # Get current resolution from config (with fallback to 1920x1080)
+        current_res = "1920x1080"
+        if hasattr(config, 'capture_width') and hasattr(config, 'capture_height'):
+            current_res = f"{config.capture_width}x{config.capture_height}"
+        self._res_combo.setCurrentText(current_res)
         self._res_combo.setStyleSheet("""
             QComboBox {
                 background-color: #1C1C1E;
@@ -661,7 +665,8 @@ class MainWindow(QMainWindow):
         
         self._quality_combo = QComboBox()
         self._quality_combo.addItems(["High", "Medium", "Low"])
-        self._quality_combo.setCurrentText(config.quality)
+        current_quality = getattr(config, 'quality', 'High')
+        self._quality_combo.setCurrentText(current_quality)
         self._quality_combo.setStyleSheet("""
             QComboBox {
                 background-color: #1C1C1E;
@@ -694,7 +699,8 @@ class MainWindow(QMainWindow):
         
         self._fps_spin = QSpinBox()
         self._fps_spin.setRange(15, 60)
-        self._fps_spin.setValue(config.max_fps)
+        current_fps = getattr(config, 'max_fps', 30)
+        self._fps_spin.setValue(current_fps)
         self._fps_spin.setStyleSheet("""
             QSpinBox {
                 background-color: #1C1C1E;
@@ -790,10 +796,13 @@ class MainWindow(QMainWindow):
         # Update config from UI
         res = self._res_combo.currentText()
         if res:
-            config.capture_width, config.capture_height = map(int, res.split('x'))
+            # Use setattr to safely add attributes if they don't exist
+            width, height = map(int, res.split('x'))
+            setattr(config, 'capture_width', width)
+            setattr(config, 'capture_height', height)
         
-        config.quality = self._quality_combo.currentText()
-        config.max_fps = self._fps_spin.value()
+        setattr(config, 'quality', self._quality_combo.currentText())
+        setattr(config, 'max_fps', self._fps_spin.value())
         config.audio_enabled = self._audio_enabled.isChecked()
         config.audio_volume = self._volume_slider.value() / 100.0
         

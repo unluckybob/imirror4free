@@ -45,6 +45,12 @@ class _Config:
         # ── Capture backend ─────────────────────────────────────────
         self.capture_backend = CaptureBackendType.AUTO
 
+        # ── Capture settings ────────────────────────────────────────
+        self.capture_width: int = 1920
+        self.capture_height: int = 1080
+        self.max_fps: int = 30
+        self.quality: str = "High"
+
         # ── Screenshot backend (Phase 1) ────────────────────────────
         self.screenshot_target_fps: int = 15
 
