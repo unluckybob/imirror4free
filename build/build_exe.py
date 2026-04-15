@@ -66,6 +66,7 @@ def build():
         "--hidden-import=usb.backend",
         "--hidden-import=usb.backend.libusb0",
         "--hidden-import=usb.backend.libusb1",
+        "--hidden-import=usb.backend.winusb",
         "--hidden-import=libusb_package",
 
         # Video decoding

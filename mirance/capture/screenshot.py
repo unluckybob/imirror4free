@@ -73,6 +73,7 @@ class ScreenshotCapture(CaptureBackend):
                 self._lockdown = loop.run_until_complete(
                     create_using_usbmux(serial=device_udid)
                 )
+                logger.info(f"Screenshot backend connected to device: {device_udid}")
             finally:
                 loop.close()
         except ImportError:
@@ -83,10 +84,10 @@ class ScreenshotCapture(CaptureBackend):
             return False
         except Exception as e:
             logger.error(
-                "Screenshot backend cannot connect to iPhone: %s. "
-                "This usually means the libusb-win32 mirror driver is active — "
-                "use the Valeria backend instead, or restore the original "
-                "Apple driver via Tools → Restore Original Driver.",
+                "Screenshot backend cannot connect to iPhone (%s): %s. "
+                "Check that: (1) iPhone is connected via USB, (2) iPhone shows 'Trust This Computer' prompt - tap Trust, "
+                "(3) usbmuxd is running. If using libusb-win32 mirror driver, use Valeria backend instead.",
+                device_udid,
                 e,
             )
             return False

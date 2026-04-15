@@ -169,39 +169,39 @@ class USBEndpoint:
         Returns True if an Apple device is found and accessible.
         """
         import usb.core
-        import usb.backend.libusb0
-        import usb.backend.libusb1
-        import usb.backend.winusb
         
         # Try multiple backends for better compatibility
         backends_to_try = []
         
         # Try WinUSB first (recommended for Windows 11 per AnyMiro doc)
         try:
+            import usb.backend.winusb
             be_winusb = usb.backend.winusb.get_backend()
             if be_winusb:
                 backends_to_try.append(('winusb', be_winusb))
                 logger.debug("WinUSB backend available")
-        except:
-            pass
+        except (ImportError, Exception) as e:
+            logger.debug(f"WinUSB backend not available: {e}")
         
         # Try libusb1 (newer, better on Windows 11)
         try:
+            import usb.backend.libusb1
             be1 = usb.backend.libusb1.get_backend()
             if be1:
                 backends_to_try.append(('libusb1', be1))
                 logger.debug("libusb1 backend available")
-        except:
-            pass
+        except (ImportError, Exception) as e:
+            logger.debug(f"libusb1 backend not available: {e}")
         
         # Fall back to libusb0
         try:
+            import usb.backend.libusb0
             be0 = usb.backend.libusb0.get_backend()
             if be0:
                 backends_to_try.append(('libusb0', be0))
                 logger.debug("libusb0 backend available")
-        except:
-            pass
+        except (ImportError, Exception) as e:
+            logger.debug(f"libusb0 backend not available: {e}")
         
         if not backends_to_try:
             logger.error("No USB backends available!")
