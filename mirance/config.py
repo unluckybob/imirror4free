@@ -46,10 +46,16 @@ class _Config:
         self.capture_backend = CaptureBackendType.AUTO
 
         # ── Capture settings ────────────────────────────────────────
-        self.capture_width: int = 1920
-        self.capture_height: int = 1080
-        self.max_fps: int = 30
+        self.capture_width: int = 2560
+        self.capture_height: int = 1440
+        self.max_fps: int = 60
         self.quality: str = "High"
+
+        # ── Buffer settings (pcap-confirmed) ─────────────────────────
+        self.buffer_ahead_ms: int = 73      # Optimal BufferAheadInterval (pcap-confirmed)
+        self.screen_latency_ms: int = 40    # Natural floor - don't go below this
+        self.min_buffer_ahead_ms: int = 40
+        self.max_buffer_ahead_ms: int = 73
 
         # ── Screenshot backend (Phase 1) ────────────────────────────
         self.screenshot_target_fps: int = 15
