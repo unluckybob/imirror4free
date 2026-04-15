@@ -31,17 +31,17 @@ class PacketType(IntEnum):
     HPD1 = 0x68706431  # 'hpd1' → 31 64 70 68 (1dph on wire) - Enable display
     HPA0 = 0x68706131  # 'hpa1' → 31 61 70 68 (1aph on wire) - Disable audio
     HPA1 = 0x68706131  # 'hpa1' → 31 61 70 68 (1aph on wire) - Enable audio
-    AFMT = 0x6166746D  # 'afmt' → 74 6D 66 61 (tmfa on wire)
-    CVRP = 0x70727663  # 'cvrp' → 70 72 76 63 (prvc on wire)
+    AFMT = 0x61666D74  # 'afmt' → 74 6D 66 61 (tmfa on wire)
+    CVRP = 0x63767270  # 'cvrp' → 70 72 76 63 (prvc on wire)
     FEED = 0x64656566  # 'feed' → 66 65 65 64 (feed on wire) - Video frame
     EAT  = 0x74616500  # 'eat\\x00' → 00 61 65 74 (eat on wire) - Audio data
     NEED = 0x6465656E  # 'need' → 6E 65 65 64 (neee on wire) - Flow control
-    PING = 0x676E6970  # 'ping' → 70 6E 69 70 (gnip on wire)
-    CWPA = 0x61707763  # 'cwpa' → 63 77 70 61 (cwp a on wire)
-    CLOK = 0x6B6F6C63  # 'clok' → 63 6C 6F 6B (clok on wire)
-    TIME = 0x656D6974  # 'time' → 74 69 6D 65 (time on wire)
-    SKEW = 0x6B776573  # 'skew' → 73 65 77 6B (sewk on wire)
-    OG  = 0x00676F00  # 'og\\x00' → 00 67 6F 00 (og on wire)
+    PING = 0x70696E67  # 'ping' → 70 6E 69 67 (gnip on wire)
+    CWPA = 0x70617763  # 'cwpa' → 63 77 70 61 (cwap on wire)
+    CLOK = 0x6F6B6F6C  # 'clok' → 6C 6F 6B 6F (loko on wire)
+    TIME = 0x74696D65  # 'time' → 65 6D 69 74 (emit on wire)
+    SKEW = 0x736B6577  # 'skew' → 77 65 6B 73 (weks on wire)
+    OG  = 0x006F6700  # 'og\\x00' → 00 67 6F 00 (og on wire)
 
 
 # Chunk size and pending reads for low latency
