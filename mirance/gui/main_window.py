@@ -73,7 +73,7 @@ class SplashScreen(QSplashScreen):
 
 
 class MainWindow(QMainWindow):
-    """Main application window."""
+    """Main application window - AnyMiro-style with crimson dark theme."""
 
     # Signals for cross-thread UI updates
     frame_ready = pyqtSignal(np.ndarray)
@@ -86,8 +86,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{config.window_title} v{__version__}")
-        self.resize(config.default_window_width, config.default_window_height)
-        self.setMinimumSize(320, 480)
+        self.resize(1200, 800)  # Larger default for sidebar layout
+        self.setMinimumSize(900, 600)
 
         # Set window icon
         icon_path = self._resource_path(os.path.join("assets", "icon.ico"))
@@ -107,12 +107,12 @@ class MainWindow(QMainWindow):
         self._is_recording = False
         self._consecutive_failures = 0
         self._last_capture_failure = 0.0
-        self._driver_installed_this_session = False  # Guards against stale diagnostics re-showing the button
+        self._driver_installed_this_session = False
+        self._detected_devices = []  # List of detected devices for sidebar
 
-        # Build UI
+        # Build UI - AnyMiro style with sidebar
         self._build_menu_bar()
-        self._build_toolbar()
-        self._build_central_widget()
+        self._build_central_widget()  # Now includes sidebar
         self._build_status_bar()
         self._setup_shortcuts()
 
@@ -304,42 +304,500 @@ class MainWindow(QMainWindow):
         self.addToolBar(self._toolbar)
 
     def _build_central_widget(self) -> None:
-        """Build the central stacked widget (waiting screen ↔ mirror view)."""
-        self._stack = QStackedWidget()
-        self.setCentralWidget(self._stack)
+        """Build the central widget - AnyMiro-style layout with sidebar."""
+        # Main horizontal layout: [Sidebar | Content | Settings]
+        self._central_widget = QWidget()
+        self.setCentralWidget(self._central_widget)
+        
+        main_layout = QHBoxLayout(self._central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # ─── SIDEBAR (Left) - Device List ─────────────────────────────
+        self._sidebar = self._build_sidebar()
+        main_layout.addWidget(self._sidebar)
+        
+        # ─── CONTENT AREA (Center) - Video Preview + Controls ───────
+        self._content_area = self._build_content_area()
+        main_layout.addWidget(self._content_area, stretch=1)
+        
+        # ─── SETTINGS PANEL (Right) - Options ─────────────────────────
+        self._settings_panel = self._build_settings_panel()
+        main_layout.addWidget(self._settings_panel)
 
-        # Page 0: Waiting screen
-        self._waiting_page = self._build_waiting_page()
-        self._stack.addWidget(self._waiting_page)
-
-        # Page 1: Mirror view (frame display)
-        self._mirror_page = QWidget()
-        mirror_layout = QVBoxLayout(self._mirror_page)
-        mirror_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Use GPU-accelerated GLRenderer when available, fall back to QLabel
-        self._gl_renderer = None
-        self._frame_label = None
-
+    def _build_sidebar(self) -> QWidget:
+        """Build left sidebar - AnyMiro-style device list."""
+        sidebar = QFrame()
+        sidebar.setFixedWidth(250)
+        sidebar.setObjectName("sidebar")
+        sidebar.setStyleSheet("""
+            QFrame#sidebar {
+                background-color: #0A0A0A;
+                border-right: 1px solid #1C1C1E;
+            }
+        """)
+        
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(12, 16, 12, 16)
+        layout.setSpacing(8)
+        
+        # Header
+        header = QLabel("Devices")
+        header.setStyleSheet("""
+            font-size: 14px;
+            font-weight: 600;
+            color: #FFFFFF;
+            padding: 8px 0;
+        """)
+        layout.addWidget(header)
+        
+        # Refresh button
+        btn_refresh = QPushButton("🔄 Refresh")
+        btn_refresh.setStyleSheet("""
+            QPushButton {
+                background-color: #1C1C1E;
+                color: #A0A0A0;
+                border: none;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 12px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; }
+        """)
+        btn_refresh.clicked.connect(self._refresh_devices)
+        layout.addWidget(btn_refresh)
+        
+        layout.addSpacing(8)
+        
+        # Device list container
+        self._device_list_widget = QWidget()
+        device_list_layout = QVBoxLayout(self._device_list_widget)
+        device_list_layout.setContentsMargins(0, 0, 0, 0)
+        device_list_layout.setSpacing(4)
+        layout.addWidget(self._device_list_widget)
+        
+        # Empty state - no devices
+        self._no_devices_label = QLabel("No devices found")
+        self._no_devices_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._no_devices_label.setStyleSheet("""
+            color: #636366;
+            font-size: 12px;
+            padding: 20px;
+        """)
+        device_list_layout.addWidget(self._no_devices_label)
+        
+        # Bottom section - Driver install
+        layout.addStretch()
+        
+        btn_install_driver = QPushButton("🔧 Install Driver")
+        btn_install_driver.setStyleSheet("""
+            QPushButton {
+                background-color: #8B0000;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                padding: 10px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #B5342B; }
+        """)
+        btn_install_driver.clicked.connect(self._install_driver)
+        layout.addWidget(btn_install_driver)
+        
+        return sidebar
+    
+    def _build_content_area(self) -> QWidget:
+        """Build center content area - video preview and controls."""
+        content = QWidget()
+        content.setStyleSheet("background-color: #000000;")
+        
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # ─── TOP BAR (Title + Controls) ────────────────────────────────
+        top_bar = QWidget()
+        top_bar.setStyleSheet("background-color: #141414;")
+        top_bar_layout = QHBoxLayout(top_bar)
+        top_bar_layout.setContentsMargins(16, 8, 16, 8)
+        
+        # App title
+        title = QLabel(f"MIRROR")
+        title.setStyleSheet("""
+            font-size: 16px;
+            font-weight: 600;
+            color: #B5342B;
+        """)
+        top_bar_layout.addWidget(title)
+        
+        top_bar_layout.addStretch()
+        
+        # Window controls
+        btn_minimize = QPushButton("─")
+        btn_minimize.setFixedSize(30, 24)
+        btn_minimize.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #A0A0A0;
+                border: none;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; color: #FFFFFF; }
+        """)
+        btn_minimize.clicked.connect(self.showMinimized)
+        top_bar_layout.addWidget(btn_minimize)
+        
+        btn_maximize = QPushButton("□")
+        btn_maximize.setFixedSize(30, 24)
+        btn_maximize.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #A0A0A0;
+                border: none;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; color: #FFFFFF; }
+        """)
+        btn_maximize.clicked.connect(self._toggle_maximize)
+        top_bar_layout.addWidget(btn_maximize)
+        
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(30, 24)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #A0A0A0;
+                border: none;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #B5342B; color: #FFFFFF; }
+        """)
+        btn_close.clicked.connect(self.close)
+        top_bar_layout.addWidget(btn_close)
+        
+        layout.addWidget(top_bar)
+        
+        # ─── VIDEO PREVIEW AREA ────────────────────────────────────────
+        self._video_container = QWidget()
+        video_layout = QVBoxLayout(self._video_container)
+        video_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Use GL renderer or QLabel fallback
         if OPENGL_AVAILABLE:
             self._gl_renderer = GLRenderer()
             self._gl_renderer.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            mirror_layout.addWidget(self._gl_renderer)
-            logger.info("Using OpenGL GPU renderer")
+            video_layout.addWidget(self._gl_renderer)
         else:
-            self._frame_label = QLabel()
+            self._frame_label = QLabel("Waiting for device...")
             self._frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._frame_label.setStyleSheet("background: #000;")
+            self._frame_label.setStyleSheet("""
+                background-color: #000000;
+                color: #636366;
+                font-size: 14px;
+            """)
             self._frame_label.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            mirror_layout.addWidget(self._frame_label)
-            logger.info("OpenGL not available — using QLabel fallback renderer")
+            video_layout.addWidget(self._frame_label)
+        
+        layout.addWidget(self._video_container, stretch=1)
+        
+        # ─── BOTTOM CONTROL BAR ────────────────────────────────────────
+        control_bar = QWidget()
+        control_bar.setStyleSheet("background-color: #141414;")
+        controls_layout = QHBoxLayout(control_bar)
+        controls_layout.setContentsMargins(16, 8, 16, 8)
+        
+        # Connection status
+        self._connection_status = QLabel("Disconnected")
+        self._connection_status.setStyleSheet("color: #A0A0A0; font-size: 12px;")
+        controls_layout.addWidget(self._connection_status)
+        
+        controls_layout.addStretch()
+        
+        # Screenshot button
+        self._btn_screenshot = QPushButton("📸")
+        self._btn_screenshot.setFixedSize(40, 32)
+        self._btn_screenshot.setStyleSheet("""
+            QPushButton {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; }
+            QPushButton:disabled { color: #636366; }
+        """)
+        self._btn_screenshot.setEnabled(False)
+        self._btn_screenshot.clicked.connect(self._take_screenshot)
+        controls_layout.addWidget(self._btn_screenshot)
+        
+        # Record button
+        self._btn_record = QPushButton("⏺")
+        self._btn_record.setFixedSize(40, 32)
+        self._btn_record.setStyleSheet("""
+            QPushButton {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; }
+            QPushButton:disabled { color: #636366; }
+        """)
+        self._btn_record.setEnabled(False)
+        self._btn_record.clicked.connect(self._toggle_recording)
+        controls_layout.addWidget(self._btn_record)
+        
+        # Audio toggle
+        self._btn_audio = QPushButton("🔊")
+        self._btn_audio.setFixedSize(40, 32)
+        self._btn_audio.setStyleSheet("""
+            QPushButton {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; }
+        """)
+        self._btn_audio.setCheckable(True)
+        self._btn_audio.setChecked(True)
+        controls_layout.addWidget(self._btn_audio)
+        
+        # Settings button
+        btn_settings = QPushButton("⚙")
+        btn_settings.setFixedSize(40, 32)
+        btn_settings.setStyleSheet("""
+            QPushButton {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #2C2C2E; }
+        """)
+        btn_settings.clicked.connect(self._open_settings)
+        controls_layout.addWidget(btn_settings)
+        
+        layout.addWidget(control_bar)
+        
+        return content
+    
+    def _build_settings_panel(self) -> QWidget:
+        """Build right settings panel - collapsible."""
+        panel = QWidget()
+        panel.setFixedWidth(280)
+        panel.setStyleSheet("background-color: #0A0A0A;")
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        
+        # Header
+        header = QLabel("Settings")
+        header.setStyleSheet("""
+            font-size: 14px;
+            font-weight: 600;
+            color: #FFFFFF;
+        """)
+        layout.addWidget(header)
+        
+        # Resolution
+        res_group = QGroupBox("Resolution")
+        res_group.setStyleSheet("""
+            QGroupBox {
+                color: #A0A0A0;
+                border: 1px solid #1C1C1E;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }
+        """)
+        res_layout = QVBoxLayout(res_group)
+        
+        self._res_combo = QComboBox()
+        self._res_combo.addItems(["1920x1080", "1280x720", "1080x1920", "720x1280"])
+        self._res_combo.setCurrentText(f"{config.capture_width}x{config.capture_height}")
+        self._res_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        res_layout.addWidget(self._res_combo)
+        layout.addWidget(res_group)
+        
+        # Quality
+        quality_group = QGroupBox("Quality")
+        quality_group.setStyleSheet("""
+            QGroupBox {
+                color: #A0A0A0;
+                border: 1px solid #1C1C1E;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }
+        """)
+        quality_layout = QVBoxLayout(quality_group)
+        
+        self._quality_combo = QComboBox()
+        self._quality_combo.addItems(["High", "Medium", "Low"])
+        self._quality_combo.setCurrentText(config.quality)
+        self._quality_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        quality_layout.addWidget(self._quality_combo)
+        layout.addWidget(quality_group)
+        
+        # FPS
+        fps_group = QGroupBox("Max FPS")
+        fps_group.setStyleSheet("""
+            QGroupBox {
+                color: #A0A0A0;
+                border: 1px solid #1C1C1E;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }
+        """)
+        fps_layout = QVBoxLayout(fps_group)
+        
+        self._fps_spin = QSpinBox()
+        self._fps_spin.setRange(15, 60)
+        self._fps_spin.setValue(config.max_fps)
+        self._fps_spin.setStyleSheet("""
+            QSpinBox {
+                background-color: #1C1C1E;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        fps_layout.addWidget(self._fps_spin)
+        layout.addWidget(fps_group)
+        
+        # Audio
+        audio_group = QGroupBox("Audio")
+        audio_group.setStyleSheet("""
+            QGroupBox {
+                color: #A0A0A0;
+                border: 1px solid #1C1C1E;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }
+        """)
+        audio_layout = QVBoxLayout(audio_group)
+        
+        self._audio_enabled = QCheckBox("Enable Audio")
+        self._audio_enabled.setChecked(config.audio_enabled)
+        self._audio_enabled.setStyleSheet("color: #FFFFFF;")
+        audio_layout.addWidget(self._audio_enabled)
+        
+        # Volume slider
+        volume_layout = QHBoxLayout()
+        volume_layout.addWidget(QLabel("Volume:"))
+        self._volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self._volume_slider.setRange(0, 100)
+        self._volume_slider.setValue(int(config.audio_volume * 100))
+        self._volume_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                background-color: #1C1C1E;
+                height: 4px;
+            }
+            QSlider::handle:horizontal {
+                background-color: #B5342B;
+                width: 14px;
+                margin: -5px 0;
+            }
+        """)
+        volume_layout.addWidget(self._volume_slider)
+        audio_layout.addLayout(volume_layout)
+        
+        layout.addWidget(audio_group)
+        
+        layout.addStretch()
+        
+        # Apply button
+        btn_apply = QPushButton("Apply")
+        btn_apply.setStyleSheet("""
+            QPushButton {
+                background-color: #8B0000;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 6px;
+                padding: 10px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #B5342B; }
+        """)
+        btn_apply.clicked.connect(self._apply_settings)
+        layout.addWidget(btn_apply)
+        
+        return panel
 
-        self._stack.addWidget(self._mirror_page)
-
-        # Start on waiting page
-        self._stack.setCurrentIndex(0)
+    def _refresh_devices(self) -> None:
+        """Refresh device list."""
+        self._no_devices_label.setVisible(True)
+        self._connection_status.setText("Scanning...")
+        
+    def _toggle_maximize(self) -> None:
+        """Toggle maximize/restore window."""
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+    
+    def _apply_settings(self) -> None:
+        """Apply settings from settings panel."""
+        # Update config from UI
+        res = self._res_combo.currentText()
+        if res:
+            config.capture_width, config.capture_height = map(int, res.split('x'))
+        
+        config.quality = self._quality_combo.currentText()
+        config.max_fps = self._fps_spin.value()
+        config.audio_enabled = self._audio_enabled.isChecked()
+        config.audio_volume = self._volume_slider.value() / 100.0
+        
+        self.status_update.emit("Settings applied")
 
     def _build_waiting_page(self) -> QWidget:
         """Build the waiting/connection screen."""
@@ -484,13 +942,11 @@ class MainWindow(QMainWindow):
         """Start capturing from the detected device."""
         try:
             self._is_connected = True
-            self._stack.setCurrentIndex(1)  # Switch to mirror view
-
-            # Enable recording controls
+            
+            # Update UI for connected state
+            self._connection_status.setText(f"Connected: {device.display_name}")
             self._btn_screenshot.setEnabled(True)
             self._btn_record.setEnabled(True)
-            self._action_screenshot.setEnabled(True)
-            self._action_record.setEnabled(True)
 
             # Start capture in background thread
             udid = device.udid
@@ -606,22 +1062,23 @@ class MainWindow(QMainWindow):
     def _on_disconnected(self) -> None:
         """Reset UI after device disconnects or stream ends (runs on UI thread via signal)."""
         logger.info("Device disconnected — resetting UI")
-        self._stack.setCurrentIndex(0)  # Back to waiting page
+        self._is_connected = False
+        
+        # Reset UI to disconnected state
+        self._connection_status.setText("Disconnected")
         self._btn_screenshot.setEnabled(False)
         self._btn_record.setEnabled(False)
-        self._action_screenshot.setEnabled(False)
-        self._action_record.setEnabled(False)
+        
+        # Reset video area
+        if hasattr(self, '_frame_label') and self._frame_label:
+            self._frame_label.setText("Waiting for device...")
+        
         self._fps_status_label.setText("")
-        if self._consecutive_failures >= 3:
-            self._waiting_status.setText(
-                "Multiple connection failures — try unplugging and replugging your iPhone"
-            )
-        else:
-            self._waiting_status.setText("Disconnected — reconnect your iPhone")
+        self.status_update.emit("Disconnected — plug in your iPhone")
+        
         if self._is_recording:
             self._stop_recording()
         self._audio_player = None
-        self.status_update.emit("Disconnected — plug in your iPhone")
 
     def _feed_raw_h264_to_recorder(self, h264_data: bytes, is_keyframe: bool,
                                     timestamp_ns: int = 0) -> None:
@@ -932,9 +1389,12 @@ class MainWindow(QMainWindow):
 
     def _toggle_fps_overlay(self) -> None:
         if self._fps_overlay is None:
-            self._fps_overlay = FPSOverlay(self._mirror_page)
-            self._fps_overlay.show()
-            self._action_fps.setChecked(True)
+            # Use video container or frame label as parent
+            parent = getattr(self, '_frame_label', None) or getattr(self, '_video_container', None)
+            if parent:
+                self._fps_overlay = FPSOverlay(parent)
+                self._fps_overlay.show()
+                self._action_fps.setChecked(True)
         else:
             self._fps_overlay.close()
             self._fps_overlay = None
@@ -1036,7 +1496,9 @@ class MainWindow(QMainWindow):
         """Handle window resize — reposition overlay."""
         super().resizeEvent(event)
         if self._fps_overlay:
-            self._fps_overlay.resize(self._mirror_page.size())
+            # Use video container size for overlay
+            if hasattr(self, '_video_container') and self._video_container:
+                self._fps_overlay.resize(self._video_container.size())
 
     def closeEvent(self, event) -> None:
         """Clean shutdown."""
