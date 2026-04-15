@@ -8,52 +8,54 @@
 python -m mirance
 
 # Development
+pip install -r requirements.txt
 pip install -e .
 ```
 
-### Protocol Implementation
+### Protocol Implementation (FINAL)
 
 Based on analysis of external files from DropMeFiles:
-- `iPhone_USB_Mirror_Dev_Guide.md` - Protocol specification
+- `iPhone_USB_Mirror_Dev_Guide.md` - Protocol specification ✓ Verified
 - `anym_capture.pcapng` - PCAP capture for validation
+- `ispyoutput.zip` - 47 C# reference files
 
-### Critical Implementation Details
+### Critical Implementation Details (ALL VERIFIED)
 
-1. **USB QuickTime Mode Activation**
-   - Control transfer: `0x40, 0x52, wIndex=0x0002`
-   - Re-enumerate and poll for `subclass=0x2A`
+| Feature | Code Location | Status |
+|---------|--------------|--------|
+| USB QuickTime activation | `protocol.py:activate_quicktime_mode()` | ✓ 0x52 control transfer |
+| REVERSED magic bytes | `protocol.py:PacketType` | ✓ All 16 verified |
+| Handshake state machine | `protocol.py:HandshakeHandler` | ✓ PING→...→OG |
+| BufferAhead=73ms | `config.py` + `protocol.py` | ✓ Verified |
+| ScreenLatency=40ms | `config.py` + `protocol.py` | ✓ Verified |
+| QuickTime interface | `usb/device.py:find_qt_device()` | ✓ Subclass 0x2A |
 
-2. **Magic Bytes (REVERSED on wire!)**
-   - ASYN → `nysa`
-   - SYNC → `cnys`
-   - HPD1 → `1dph`
-   - HPA1 → `1aph`
+### Magic Bytes Verification (ALL PASSED)
+```
+ASYN:nysa ✓ SYNC:cnys ✓ RPLY:ylpr ✓ HPD1:1dph ✓ HPA1:1aph ✓
+AFMT:tmfa ✓ CVRP:prvc ✓ FEED:feed ✓ EAT:\x00eat ✓ NEED:need ✓
+PING:gnip ✓ CWPA:cwap ✓ CLOK:loko ✓ TIME:emit ✓ SKEW:weks ✓ OG:\x00go ✓
+```
 
-3. **Buffer Settings (pcap-confirmed)**
-   - BufferAheadInterval: 73ms
-   - ScreenLatency: 40ms
-
-4. **Capture Backends**
-   - Only Valeria (USB QuickTime streaming) - NO screenshot mode
-   - Screenshot mode removed (not part of AnyMiro protocol)
+### Capture Backends
+- Only **Valeria** (USB QuickTime streaming) - No screenshot mode
+- Screenshot saving still works (Ctrl+S saves current frame)
 
 ### Architecture
 
 ```
 mirance/
-├── capture/        # Stream capture backends (Valeria only)
-├── config.py       # Configuration
-├── decode/         # Video decoding (FFmpeg/VAAPI/D3D11VA)
-├── gui/            # GUI (PyQt)
-├── render/         # Display rendering
-├── usb/            # USB handling
-│   ├── packets.py  # Protocol packet parsing
-│   └── endpoint.py # USB endpoint management
-└── protocol.py     # Protocol implementation
+├── capture/        # Stream capture (Valeria only)
+├── protocol.py     # Protocol implementation (handshake, magic bytes)
+├── config.py       # Configuration (buffer, USB settings)
+├── decode/         # Video (HEVC/AVC) + Audio (48kHz PCM)
+├── usb/           # USB device management
+└── gui/           # GUI (PyQt6)
 ```
 
-## Notes
-
-- Uses pymobiledevice3 for lockdown/pairing
-- Uses pyusb + libusb for USB communication
-- HEVC decoding via FFmpeg (D3D11VA on Windows)
+## Dependencies
+- pyusb, libusb-package (USB communication)
+- pymobiledevice3 (pairing)
+- PyAV (FFmpeg - video decode)
+- PyQt6 (GUI)
+- sounddevice (audio output)
