@@ -120,83 +120,97 @@ class DEVPROPKEY(ctypes.Structure):
 # Windows Setup API Function Bindings
 # =============================================================================
 
-# Load SetupAPI
-setupapi = ctypes.windll.SetupAPI
+# Load SetupAPI only on Windows
+if platform.system() == "Windows":
+    try:
+        setupapi = ctypes.windll.SetupAPI
+    except Exception:
+        setupapi = None
+else:
+    setupapi = None
 
 # SetupDiGetClassDevsW
-SetupDiGetClassDevsW = setupapi.SetupDiGetClassDevsW
-SetupDiGetClassDevsW.argtypes = [ctypes.POINTER(GUID), wintypes.LPCWSTR, wintypes.HWND, wintypes.DWORD]
-SetupDiGetClassDevsW.restype = wintypes.HANDLE
+SetupDiGetClassDevsW = getattr(setupapi, 'SetupDiGetClassDevsW', None) if setupapi else None
+if SetupDiGetClassDevsW:
+    SetupDiGetClassDevsW.argtypes = [ctypes.POINTER(GUID), wintypes.LPCWSTR, wintypes.HWND, wintypes.DWORD]
+    SetupDiGetClassDevsW.restype = wintypes.HANDLE
 
 # SetupDiGetDeviceInterfaceDetailW
-SetupDiGetDeviceInterfaceDetailW = setupapi.SetupDiGetDeviceInterfaceDetailW
-SetupDiGetDeviceInterfaceDetailW.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(SP_DEVICE_INTERFACE_DATA),
-    ctypes.POINTER(SP_DEVICE_INTERFACE_DETAIL_DATA),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-    ctypes.POINTER(SP_DEVINFO_DATA),
-]
-SetupDiGetDeviceInterfaceDetailW.restype = wintypes.BOOL
+SetupDiGetDeviceInterfaceDetailW = getattr(setupapi, 'SetupDiGetDeviceInterfaceDetailW', None) if setupapi else None
+if SetupDiGetDeviceInterfaceDetailW:
+    SetupDiGetDeviceInterfaceDetailW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVICE_INTERFACE_DATA),
+        ctypes.POINTER(SP_DEVICE_INTERFACE_DETAIL_DATA),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(SP_DEVINFO_DATA),
+    ]
+    SetupDiGetDeviceInterfaceDetailW.restype = wintypes.BOOL
 
 # SetupDiCreateDeviceInfoList
-SetupDiCreateDeviceInfoList = setupapi.SetupDiCreateDeviceInfoList
-SetupDiCreateDeviceInfoList.argtypes = [ctypes.POINTER(GUID), wintypes.HWND]
-SetupDiCreateDeviceInfoList.restype = wintypes.HANDLE
+SetupDiCreateDeviceInfoList = getattr(setupapi, 'SetupDiCreateDeviceInfoList', None) if setupapi else None
+if SetupDiCreateDeviceInfoList:
+    SetupDiCreateDeviceInfoList.argtypes = [ctypes.POINTER(GUID), wintypes.HWND]
+    SetupDiCreateDeviceInfoList.restype = wintypes.HANDLE
 
 # SetupDiGetDevicePropertyW
-SetupDiGetDevicePropertyW = setupapi.SetupDiGetDevicePropertyW
-SetupDiGetDevicePropertyW.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(SP_DEVINFO_DATA),
-    ctypes.POINTER(DEVPROPKEY),
-    ctypes.POINTER(wintypes.ULONG),
-    ctypes.POINTER(wintypes.BYTE),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-]
-SetupDiGetDevicePropertyW.restype = wintypes.BOOL
+SetupDiGetDevicePropertyW = getattr(setupapi, 'SetupDiGetDevicePropertyW', None) if setupapi else None
+if SetupDiGetDevicePropertyW:
+    SetupDiGetDevicePropertyW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+        ctypes.POINTER(DEVPROPKEY),
+        ctypes.POINTER(wintypes.ULONG),
+        ctypes.POINTER(wintypes.BYTE),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    SetupDiGetDevicePropertyW.restype = wintypes.BOOL
 
 # SetupDiEnumDeviceInterfaces
-SetupDiEnumDeviceInterfaces = setupapi.SetupDiEnumDeviceInterfaces
-SetupDiEnumDeviceInterfaces.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(SP_DEVINFO_DATA),
-    ctypes.POINTER(GUID),
-    wintypes.DWORD,
-    ctypes.POINTER(SP_DEVICE_INTERFACE_DATA),
-]
-SetupDiEnumDeviceInterfaces.restype = wintypes.BOOL
+SetupDiEnumDeviceInterfaces = getattr(setupapi, 'SetupDiEnumDeviceInterfaces', None) if setupapi else None
+if SetupDiEnumDeviceInterfaces:
+    SetupDiEnumDeviceInterfaces.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+        ctypes.POINTER(GUID),
+        wintypes.DWORD,
+        ctypes.POINTER(SP_DEVICE_INTERFACE_DATA),
+    ]
+    SetupDiEnumDeviceInterfaces.restype = wintypes.BOOL
 
 # SetupDiDestroyDeviceInfoList
-SetupDiDestroyDeviceInfoList = setupapi.SetupDiDestroyDeviceInfoList
-SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
-SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
+SetupDiDestroyDeviceInfoList = getattr(setupapi, 'SetupDiDestroyDeviceInfoList', None) if setupapi else None
+if SetupDiDestroyDeviceInfoList:
+    SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
+    SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
 
 # SetupDiGetDeviceRegistryPropertyW
-SetupDiGetDeviceRegistryPropertyW = setupapi.SetupDiGetDeviceRegistryPropertyW
-SetupDiGetDeviceRegistryPropertyW.argtypes = [
-    wintypes.HANDLE,
-    ctypes.POINTER(SP_DEVINFO_DATA),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.ULONG),
-    ctypes.POINTER(wintypes.BYTE),
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.DWORD),
-]
-SetupDiGetDeviceRegistryPropertyW.restype = wintypes.BOOL
+SetupDiGetDeviceRegistryPropertyW = getattr(setupapi, 'SetupDiGetDeviceRegistryPropertyW', None) if setupapi else None
+if SetupDiGetDeviceRegistryPropertyW:
+    SetupDiGetDeviceRegistryPropertyW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(SP_DEVINFO_DATA),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.ULONG),
+        ctypes.POINTER(wintypes.BYTE),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    SetupDiGetDeviceRegistryPropertyW.restype = wintypes.BOOL
 
 # UpdateDriverForPlugAndPlayDevicesA
-UpdateDriverForPlugAndPlayDevicesA = setupapi.UpdateDriverForPlugAndPlayDevicesA
-UpdateDriverForPlugAndPlayDevicesA.argtypes = [
-    wintypes.HWND,
-    wintypes.LPCSTR,
-    wintypes.LPCSTR,
-    wintypes.DWORD,
-    ctypes.POINTER(wintypes.BOOL),
-]
-UpdateDriverForPlugAndPlayDevicesA.restype = wintypes.BOOL
+UpdateDriverForPlugAndPlayDevicesA = getattr(setupapi, 'UpdateDriverForPlugAndPlayDevicesA', None) if setupapi else None
+if UpdateDriverForPlugAndPlayDevicesA:
+    UpdateDriverForPlugAndPlayDevicesA.argtypes = [
+        wintypes.HWND,
+        wintypes.LPCSTR,
+        wintypes.LPCSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.BOOL),
+    ]
+    UpdateDriverForPlugAndPlayDevicesA.restype = wintypes.BOOL
 
 # =============================================================================
 # Data Classes

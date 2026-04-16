@@ -12,6 +12,7 @@ Reference: AnyMiro's Core.MD.Render.dll (DirectX 11 renderer)
 import logging
 import ctypes
 import ctypes.wintypes as wintypes
+import platform
 from typing import Optional, Tuple
 from enum import Enum
 
@@ -191,75 +192,84 @@ class ID3D11Buffer(IUnknown):
 # DirectX 11 Function Bindings
 # =============================================================================
 
-def _get_dxgi_factory() -> Optional[ctypes.any]:
-    """Get DXGI factory (DXGI 1.0)."""
-    try:
-        dxgi = ctypes.windll.dxgi
-        
-        # D3D11CreateFactory
-        D3D11CreateFactory = ctypes.windll.d3d11.D3D11CreateFactory
-        D3D11CreateFactory.argtypes = [
-            wintypes.UINT,
-            ctypes.POINTER(GUID),
-            ctypes.POINTER(None),
-        ]
-        D3D11CreateFactory.restype = wintypes.HRESULT
-        
-        return dxgi
-    except Exception as e:
-        logger.error(f"Failed to load DXGI: {e}")
+if platform.system() != "Windows":
+    # Stub for non-Windows
+    def _get_dxgi_factory() -> None:
+        return None
+    
+    def _get_d3d11_device() -> None:
         return None
 
-
-def _get_d3d11_device() -> Optional[Tuple[any, any]]:
-    """Create Direct3D 11 device and context."""
-    try:
-        d3d11 = ctypes.windll.d3d11
-        
-        # D3D11CreateDevice
-        D3D11CreateDevice = d3d11.D3D11CreateDevice
-        D3D11CreateDevice.argtypes = [
-            wintypes.HWND,  # pAdapter
-            wintypes.UINT,  # DriverType
-            wintypes.HMODULE,  # Software
-            wintypes.UINT,  # Flags
-            ctypes.POINTER(wintypes.UINT),  # pFeatureLevels
-            wintypes.UINT,  # FeatureLevels
-            wintypes.UINT,  # SDKVersion
-            ctypes.POINTER(ctypes.POINTER(ID3D11Device)),  # ppDevice
-            ctypes.POINTER(wintypes.UINT),  # pFeatureLevel
-            ctypes.POINTER(ctypes.POINTER(ID3D11DeviceContext)),  # ppImmediateContext
-        ]
-        D3D11CreateDevice.restype = wintypes.HRESULT
-        
-        # Create device
-        device = ctypes.POINTER(ID3D11Device)()
-        context = ctypes.POINTER(ID3D11DeviceContext)()
-        feature_level = wintypes.UINT()
-        
-        result = D3D11CreateDevice(
-            None,  # Default adapter
-            0,     # D3D_DRIVER_TYPE_HARDWARE
-            None,  # No software
-            0,     # No flags
-            None,  # Auto feature level
-            0,     # Feature levels count
-            D3D11_SDK_VERSION,
-            ctypes.byref(device),
-            ctypes.byref(feature_level),
-            ctypes.byref(context),
-        )
-        
-        if result == S_OK:
-            logger.info("Direct3D 11 device created successfully")
-            return device, context
-        else:
-            logger.error(f"D3D11CreateDevice failed: {result}")
-            return None
+else:
+    def _get_dxgi_factory() -> Optional[any]:
+        """Get DXGI factory (DXGI 1.0)."""
+        try:
+            dxgi = ctypes.windll.dxgi
             
-    except Exception as e:
-        logger.error(f"Failed to create D3D11 device: {e}")
-        return None
+            # D3D11CreateFactory
+            D3D11CreateFactory = ctypes.windll.d3d11.D3D11CreateFactory
+            D3D11CreateFactory.argtypes = [
+                wintypes.UINT,
+                ctypes.POINTER(GUID),
+                ctypes.POINTER(None),
+            ]
+            D3D11CreateFactory.restype = wintypes.HRESULT
+            
+            return dxgi
+        except Exception as e:
+            logger.error(f"Failed to load DXGI: {e}")
+            return None
+
+
+    def _get_d3d11_device() -> Optional[Tuple[any, any]]:
+        """Create Direct3D 11 device and context."""
+        try:
+            d3d11 = ctypes.windll.d3d11
+            
+            # D3D11CreateDevice
+            D3D11CreateDevice = d3d11.D3D11CreateDevice
+            D3D11CreateDevice.argtypes = [
+                wintypes.HWND,  # pAdapter
+                wintypes.UINT,  # DriverType
+                wintypes.HMODULE,  # Software
+                wintypes.UINT,  # Flags
+                ctypes.POINTER(wintypes.UINT),  # pFeatureLevels
+                wintypes.UINT,  # FeatureLevels
+                wintypes.UINT,  # SDKVersion
+                ctypes.POINTER(ctypes.POINTER(ID3D11Device)),  # ppDevice
+                ctypes.POINTER(wintypes.UINT),  # pFeatureLevel
+                ctypes.POINTER(ctypes.POINTER(ID3D11DeviceContext)),  # ppImmediateContext
+            ]
+            D3D11CreateDevice.restype = wintypes.HRESULT
+            
+            # Create device
+            device = ctypes.POINTER(ID3D11Device)()
+            context = ctypes.POINTER(ID3D11DeviceContext)()
+            feature_level = wintypes.UINT()
+            
+            result = D3D11CreateDevice(
+                None,  # Default adapter
+                0,     # D3D_DRIVER_TYPE_HARDWARE
+                None,  # No software
+                0,     # No flags
+                None,  # Auto feature level
+                0,     # Feature levels count
+                D3D11_SDK_VERSION,
+                ctypes.byref(device),
+                ctypes.byref(feature_level),
+                ctypes.byref(context),
+            )
+            
+            if result == S_OK:
+                logger.info("Direct3D 11 device created successfully")
+                return device, context
+            else:
+                logger.error(f"D3D11CreateDevice failed: {result}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to create D3D11 device: {e}")
+            return None
 
 
 # =============================================================================
