@@ -16,6 +16,11 @@ import platform
 from typing import Optional, Tuple
 from enum import Enum
 
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
 logger = logging.getLogger(__name__)
 
 # DirectX 11 GUIDs and constants
@@ -442,6 +447,36 @@ class DirectXRenderer:
     @property
     def display_height(self) -> int:
         return self._height
+
+    # =============================================================================
+    # Qt Integration (for GUI compatibility)
+    # =============================================================================
+    
+    def setSizePolicy(self, horizontal, vertical):
+        """Set size policy - required for Qt layout integration."""
+        self._size_policy_horizontal = horizontal
+        self._size_policy_vertical = vertical
+        
+    def set_frame(self, pixels: np.ndarray, width: int, height: int) -> None:
+        """
+        Set video frame for rendering - matches GLRenderer interface.
+        
+        Args:
+            pixels: RGB frame data as numpy array
+            width: Frame width
+            height: Frame height
+        """
+        if not self._initialized:
+            # Try to initialize with default window
+            self.initialize(0, width, height)
+            
+        try:
+            # Convert RGB to BGRA for DirectX
+            # Render the frame via DirectX
+            self.render_frame(pixels.tobytes(), width, height, "BGRA")
+            self.present()
+        except Exception as e:
+            logger.debug(f"DirectX set_frame error: {e}")
 
 
 # =============================================================================

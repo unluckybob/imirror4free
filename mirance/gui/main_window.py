@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import threading
+import platform
 from typing import Optional
 
 import numpy as np
@@ -42,6 +43,15 @@ try:
     from mirance.render.gl_renderer import GLRenderer, OPENGL_AVAILABLE
 except ImportError:
     OPENGL_AVAILABLE = False
+
+# Try to import DirectX renderer (Windows only)
+DIRECTX_AVAILABLE = False
+try:
+    if platform.system() == "Windows":
+        from mirance.render.directx_renderer import DirectXRenderer
+        DIRECTX_AVAILABLE = True
+except ImportError:
+    DIRECTX_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -456,13 +466,25 @@ class MainWindow(QMainWindow):
         video_layout = QVBoxLayout(self._video_container)
         video_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Use GL renderer or QLabel fallback
-        if OPENGL_AVAILABLE:
+        # Use renderer: DirectX on Windows (preferred), OpenGL fallback
+        # This matches AnyMiro's Core.MD.Render.dll on Windows
+        self._dx_renderer = None  # DirectX renderer instance
+        if DIRECTX_AVAILABLE and platform.system() == "Windows":
+            # Use DirectX renderer (exact replica of AnyMiro)
+            self._dx_renderer = DirectXRenderer()
+            self._dx_renderer.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            video_layout.addWidget(self._dx_renderer)
+            logger.info("Using DirectX 11 renderer (AnyMiro-style)")
+        elif OPENGL_AVAILABLE:
+            # Fallback to OpenGL
             self._gl_renderer = GLRenderer()
             self._gl_renderer.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             video_layout.addWidget(self._gl_renderer)
+            logger.info("Using OpenGL renderer")
         else:
+            # Fallback to QLabel
             self._frame_label = QLabel("Waiting for device...")
             self._frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._frame_label.setStyleSheet("""
@@ -473,6 +495,7 @@ class MainWindow(QMainWindow):
             self._frame_label.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             video_layout.addWidget(self._frame_label)
+            logger.warning("No renderer available - using QLabel fallback")
         
         layout.addWidget(self._video_container, stretch=1)
         
@@ -901,8 +924,11 @@ class MainWindow(QMainWindow):
         try:
             h, w, ch = frame.shape
 
-            if self._gl_renderer:
-                # GPU path: zero-copy texture upload, VSync, proper aspect ratio
+            if self._dx_renderer:
+                # DirectX 11 path (AnyMiro-style on Windows)
+                self._dx_renderer.set_frame(frame, w, h)
+            elif self._gl_renderer:
+                # OpenGL path: zero-copy texture upload, VSync, proper aspect ratio
                 self._gl_renderer.set_frame(frame, w, h)
             elif self._frame_label:
                 # CPU fallback: QImage → QPixmap → scaled
