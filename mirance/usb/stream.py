@@ -43,8 +43,13 @@ class StreamManager:
                 self._process_buffer()
         except usb.core.USBError as e:
             logger.error(f"USB error: {e}")
+            logger.debug(f"  → USB error details: {dir(e)}")
+            logger.debug(f"  → errno: {getattr(e, 'errno', 'N/A')}")
+            logger.debug(f"  → strerror: {getattr(e, 'strerror', 'N/A')}")
         except Exception as e:
             logger.error(f"Stream loop crash: {e}")
+            import traceback
+            logger.debug(f"  → Traceback:\n{traceback.format_exc()}")
         finally:
             try: usb.util.release_interface(self.dev, self.intf.bInterfaceNumber)
             except: pass
