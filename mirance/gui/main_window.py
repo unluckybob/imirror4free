@@ -783,6 +783,25 @@ class MainWindow(QMainWindow):
             capture = ValeriaStreamCapture()
             self._capture_backend = capture
 
+            # First check if driver is ready - auto-install if needed
+            from mirance.capture.stream import StreamError
+            ready, msg, error_type = capture.check_driver_ready()
+            if not ready:
+                logger.info("Driver not ready: %s", msg)
+                if error_type in (StreamError.DRIVER_NEEDED, StreamError.DRIVER_REPLUG):
+                    # Driver was auto-installed - tell user to replug
+                    self._is_connected = False
+                    QMessageBox.information(
+                        self, "Driver Required",
+                        f"Mirror driver installed.\n\n{msg}\n\n"
+                        "Please unplug and replug your iPhone, then try again."
+                    )
+                    return
+                else:
+                    self.error_signal.emit("Driver Error", msg)
+                    self._is_connected = False
+                    return
+
             def on_frame(frame):
                 if frame.pixels is not None:
                     # Wire audio player for volume control on first frame
