@@ -55,7 +55,7 @@ iPhone (USB)
 |---------|-----|--------|-----------|
 | **Valeria Stream** | 30-60 | HEVC over USB | Default (after driver install) |
 
-The app uses the Valeria stream backend. Screenshots save the current video frame.
+The app uses USB streaming. Screenshots save the current video frame.
 
 ## 📋 Prerequisites
 
@@ -86,7 +86,7 @@ python -m mirance
 
 ### First-Time Setup: Install Mirror Driver
 
-The Valeria stream backend requires a one-time driver installation:
+The app requires a one-time driver installation:
 
 **Option A: GUI** — Click "🔧 Install Mirror Driver" in the app when prompted
 
@@ -108,7 +108,7 @@ Double-click `MIRANCE.exe` — no installation required.
 |-----|--------|
 | `F11` | Toggle fullscreen |
 | `F3` | Toggle FPS overlay |
-| `Ctrl+S` | Take screenshot |
+| `Ctrl+S` | Save screenshot |
 | `Ctrl+R` | Start/stop recording |
 | `Ctrl+,` | Open settings |
 | `Ctrl+Q` | Quit |
@@ -206,7 +206,7 @@ Recording works by muxing the raw HEVC stream directly into an MP4/MKV container
 | Package | Purpose |
 |---------|---------|
 | `pyusb` + `libusb-package` | Raw USB access for Valeria protocol |
-| `pymobiledevice3` | iPhone detection, pairing, DVT services |
+| `pymobiledevice3` | iPhone detection, pairing, QuickTime services |
 | `av` (PyAV/FFmpeg) | HEVC decode + recording mux |
 | `PyQt6` | Application framework |
 | `PyOpenGL` | GPU-accelerated rendering |
