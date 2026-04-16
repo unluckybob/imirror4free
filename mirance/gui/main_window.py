@@ -89,6 +89,9 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)  # Larger default for sidebar layout
         self.setMinimumSize(900, 600)
 
+        # Initialize _waiting_status early (set to None until UI is built)
+        self._waiting_status = None
+        
         # Set window icon
         icon_path = self._resource_path(os.path.join("assets", "icon.ico"))
         if os.path.exists(icon_path):
@@ -728,7 +731,8 @@ class MainWindow(QMainWindow):
 
             device = self._device_manager.first_device
             if device:
-                self._waiting_status.setText(f"iPhone detected: {device.display_name}")
+                if self._waiting_status is not None:
+                    self._waiting_status.setText(f"iPhone detected: {device.display_name}")
                 self._start_capture(device)
         except Exception as e:
             logger.debug("Device check: %s", e)
@@ -982,9 +986,8 @@ class MainWindow(QMainWindow):
                     f"[OK] {result.message}\n\n"
                     "Please unplug and replug your iPhone to activate the new driver."
                 )
-                self._waiting_status.setText("Driver installed — please replug your iPhone")
-                self._btn_install_driver.setVisible(False)
-                self._driver_status_label.setText("Driver installed ✓ — replug your iPhone to activate")
+                if self._waiting_status is not None:
+                    self._waiting_status.setText("Driver installed — please replug your iPhone")
                 self._driver_installed_this_session = True   # Suppress stale-diagnostics re-show
                 self._consecutive_failures = 0               # Reset cooldown so iPhone is detected quickly
                 self._last_capture_failure = 0.0
@@ -1038,7 +1041,8 @@ class MainWindow(QMainWindow):
             result = full_driver_setup()
 
             if result.success:
-                self._waiting_status.setText("Driver installed — replug iPhone")
+                if self._waiting_status is not None:
+                    self._waiting_status.setText("Driver installed — replug iPhone")
                 self._driver_installed_this_session = True
                 self._consecutive_failures = 0
                 self._last_capture_failure = 0.0
