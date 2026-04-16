@@ -786,8 +786,17 @@ class MainWindow(QMainWindow):
             # First check if driver is ready - auto-install if needed
             from mirance.capture.stream import StreamError
             ready, msg, error_type = capture.check_driver_ready()
+            
+            # Retry driver check a few times with brief delays (device may need to settle)
+            retries = 0
+            while not ready and retries < 3:
+                logger.info("Driver not ready (attempt %d): %s", retries + 1, msg)
+                time.sleep(0.5)
+                ready, msg, error_type = capture.check_driver_ready()
+                retries += 1
+                
             if not ready:
-                logger.info("Driver not ready: %s", msg)
+                logger.info("Driver check final result: %s", msg)
                 if error_type in (StreamError.DRIVER_NEEDED, StreamError.DRIVER_REPLUG):
                     # Driver was auto-installed - tell user to replug
                     self._is_connected = False
