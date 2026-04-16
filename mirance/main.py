@@ -167,6 +167,16 @@ def cmd_diag() -> int:
 
 def main() -> int:
     """Application entry point."""
+    # Set DirectX/ANGLE as default rendering backend on Windows (like AnyMiro)
+    # This must be done BEFORE Qt is initialized
+    import platform
+    if platform.system() == "Windows":
+        import os
+        os.environ.setdefault("QT_OPENGL", "angle")
+        os.environ.setdefault("QT_ANGLE_PLATFORM", "d3d11")
+        # Also use DirectWrite for better text rendering on Windows
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows")
+    
     args = parse_args()
     setup_logging(verbose=args.verbose, log_file=args.log_file)
 
