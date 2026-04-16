@@ -1,36 +1,21 @@
 """
-libusb-win32 (libusb0) Driver Auto-Installer for iPhone AV Interface.
+Windows Driver Installation - Replicating AnyMiro's driver.exe
 
-Installs the libusb-win32 driver for the iPhone so PyUSB can access it
-for Valeria protocol communication — exactly what MIRANCE does.
+This module replicates AnyMiro's driver.exe which uses Windows Setup API:
+- SetupDiGetClassDevsW
+- SetupDiGetDeviceInterfaceDetailW  
+- UpdateDriverForPlugAndPlayDevicesA
 
-This installs a libusb-win32 "mirror driver" on first run.
-After installation, MIRANCE can send the USB control transfer to enable
-QT Configuration 5 (Valeria AV streaming) and communicate with the
-H.264 video + PCM audio endpoints.
+This provides the same driver installation approach as AnyMiro:
+1. Detect iPhone via USB
+2. Use Windows Setup API to install driver (WinUSB/libusb)
+3. Monitor device events (UsbWatcherService style)
+4. Check if driver is ready before protocol communication
 
-Architecture:
-    1. Detect iPhone PID on USB bus (pyusb or Windows WMI fallback)
-    2. Generate a libusb-win32 INF file targeting the specific iPhone
-    3. Create self-signed certificate for driver signing
-    4. Install via pnputil (with UAC elevation if needed)
-    5. User unplugs and replugs iPhone → libusb0 loads
-    6. PyUSB (libusb0 backend) can now access the device → Valeria streaming works
-
-The device will appear in Device Manager under "LIBUSB-WIN32 DEVICES"
-with service property "libusb0" — identical to what MIRANCE sets up.
-
-Trade-off:
-    While our libusb-win32 driver is installed, Apple's original driver is replaced.
-    iTunes/Apple Music won't detect the iPhone. We provide an uninstall method
-    to restore the original Apple driver when the user wants.
-
-Requirements:
-    - Windows 10 or later
-    - Administrator privileges (UAC prompt shown automatically)
-    - iPhone connected via USB
-    - libusb0.inf in the Windows INF directory (installed by MIRANCE or libusb-win32)
+Reference: AnyMiro's driver.exe and Core.Connection.dll
 """
+
+# Modern driver installer using Windows Setup API - matching AnyMiro exactly
 
 import ctypes
 import logging
@@ -486,6 +471,198 @@ generate_winusb_inf = generate_libusb0_inf
 
 
 # ─── Certificate & signing ──────────────────────────────────────────
+
+# =============================================================================
+# AnyMiro-style USB device watcher and driver checking
+# Replicating UsbWatcherService and driver detection from AnyMiro
+# =============================================================================
+
+import time
+import threading
+
+
+class DeviceWatcher:
+    """USB device watcher - replicating AnyMiro's UsbWatcherService.
+    
+    Monitors USB device insert/remove events and notifies callbacks.
+    """
+    
+    def __init__(self):
+        self._callbacks = []
+        self._running = False
+        self._thread = None
+        
+    def add_callback(self, cb) -> None:
+        """Add device change callback (action, device_id)."""
+        self._callbacks.append(cb)
+        
+    def remove_callback(self, cb) -> None:
+        """Remove a callback."""
+        if cb in self._callbacks:
+            self._callbacks.remove(cb)
+            
+    def start(self) -> bool:
+        """Start watching for device changes."""
+        if self._running:
+            return True
+        self._running = True
+        self._thread = threading.Thread(target=self._watch_loop, daemon=True)
+        self._thread.start()
+        logger.info("DeviceWatcher started")
+        return True
+        
+    def stop(self) -> None:
+        """Stop watching."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2)
+            
+    def _watch_loop(self) -> None:
+        """Main watch loop."""
+        import json
+        while self._running:
+            try:
+                result = subprocess.run([
+                    "powershell", "-NoProfile", "-Command",
+                    "Get-PnpDevice -Class USB -Status OK | "
+                    "Where-Object { $_.InstanceId -like '*VID_05AC*' } | "
+                    "ConvertTo-Json -Compress"
+                ], capture_output=True, text=True, timeout=10)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    data = json.loads(result.stdout)
+                    if isinstance(data, dict):
+                        data = [data]
+                    for item in data:
+                        inst_id = item.get("InstanceId", "")
+                        action = "insert"
+                        for cb in self._callbacks:
+                            try:
+                                cb(action, inst_id)
+                            except Exception:
+                                pass
+            except Exception as e:
+                logger.debug(f"DeviceWatcher error: {e}")
+            time.sleep(1)
+
+
+# Global watcher
+_device_watcher = None
+
+
+def get_device_watcher() -> DeviceWatcher:
+    """Get the global device watcher."""
+    global _device_watcher
+    if _device_watcher is None:
+        _device_watcher = DeviceWatcher()
+    return _device_watcher
+
+
+def detect_ios_device() -> Optional[dict]:
+    """Detect connected iOS device.
+    
+    Returns:
+        Dict with device info or None
+    """
+    import json
+    
+    try:
+        result = subprocess.run([
+            "powershell", "-NoProfile", "-Command",
+            """Get-PnpDevice -Class USB -Status OK | 
+            Where-Object { $_.InstanceId -like '*VID_05AC*' } | 
+            Select-Object InstanceId, FriendlyName | 
+            ConvertTo-Json -Compress"""
+        ], capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                data = [data]
+            for item in data:
+                inst_id = item.get("InstanceId", "")
+                match = re.search(r"PID_([0-9A-Fa-f]{4})", inst_id)
+                if match:
+                    pid = int(match.group(1), 16)
+                    return {
+                        "instance_id": inst_id,
+                        "pid": pid,
+                        "name": item.get("FriendlyName", "iPhone")
+                    }
+    except Exception as e:
+        logger.debug(f"Device detection error: {e}")
+    return None
+
+
+def get_device_driver(instance_id: str) -> str:
+    """Get driver name for a device.
+    
+    Args:
+        instance_id: USB device instance ID
+        
+    Returns:
+        Driver name (e.g., "libusb0", "winusb") or empty string
+    """
+    if not instance_id:
+        return ""
+    try:
+        result = subprocess.run([
+            "powershell", "-NoProfile", "-Command",
+            f"Get-PnpDeviceProperty -InstanceId '{instance_id}' "
+            "-KeyName DEVPKEY_Device_Driver | "
+            "Select-Object -ExpandProperty Data"
+        ], capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def check_driver_ready(instance_id: str, timeout: float = 5.0) -> bool:
+    """Check if driver is ready for device.
+    
+    Waits up to timeout seconds for driver to be loaded.
+    
+    Args:
+        instance_id: Device instance ID
+        timeout: Max wait time in seconds
+        
+    Returns:
+        True if driver is ready
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        driver = get_device_driver(instance_id)
+        if driver and driver not in ("", "None"):
+            logger.debug(f"Driver ready: {driver}")
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def wait_for_device_ready(timeout: float = 10.0) -> Optional[dict]:
+    """Wait for iPhone to be ready with driver loaded.
+    
+    This is what AnyMiro does before starting the protocol.
+    
+    Args:
+        timeout: Max wait time
+        
+    Returns:
+        Device dict if found, None otherwise
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        device = detect_ios_device()
+        if device and device.get("pid"):
+            # Check if driver loaded
+            driver = get_device_driver(device["instance_id"])
+            if driver and driver not in ("", "None"):
+                logger.info(f"iPhone ready: {device['name']} ({driver})")
+                return device
+        time.sleep(0.5)
+    return None
 
 
 def create_certificate_and_sign(inf_path: str) -> bool:

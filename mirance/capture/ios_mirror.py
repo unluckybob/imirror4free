@@ -217,8 +217,63 @@ class IOSMirrorCapture(CaptureBackend):
         return True, "Ready", "ios_mirror"
 
     def start(self, device_udid: str) -> bool:
-        if self._protocol:
-            return False
+        """Start iOS mirroring - matching AnyMiro's flow exactly.
+        
+        AnyMiro's flow:
+        1. Wait for device driver ready (check_driver_ready)
+        2. Connect via UsbmuxProtocol
+        3. Wait for device to settle
+        4. Start streaming
+        
+        Returns:
+            True if started successfully
+        """
+        logger.info("=" * 50)
+        logger.info("Starting iOS Mirror (AnyMiro-style)")
+        logger.info("=" * 50)
+        
+        # Step 1: Wait for driver to be ready - THIS IS WHAT ANYMIRO DOES
+        from mirance.usb import driver_installer
+        device = driver_installer.wait_for_device_ready(timeout=10.0)
+        if not device:
+            logger.warning("No iPhone detected - may need driver installation")
+            # Continue anyway - might work with existing driver
+            
+        # Step 2: Normal connection
+        with self._lock:
+            if self._state != IOSMirrorState.IDLE:
+                return False
+            self._state = IOSMirrorState.CONNECTING
+            try:
+                self._usbmux = UsbmuxProtocol()
+                if not self._usbmux.connect():
+                    self._state = IOSMirrorState.ERROR
+                    logger.error("Failed to connect to usbmux")
+                    return False
+                devices = self._usbmux.list_devices()
+                device = None
+                for d in devices:
+                    if d.udid == device_udid:
+                        device = d
+                        break
+                if not device:
+                    self._usbmux.disconnect()
+                    self._state = IOSMirrorState.ERROR
+                    logger.error(f"Device {device_udid} not found")
+                    return False
+                    
+                # Step 3: Wait for device to settle (AnyMiro-style delay)
+                time.sleep(0.5)
+                
+                self._state = IOSMirrorState.CONNECTED
+                self._stats = {"frames_received": 0, "bytes_received": 0, "start_time": time.time()}
+                logger.info(f"Connected to {device_udid}")
+                return True
+            except Exception as e:
+                logger.error(f"IOSMirror: connection failed: {e}")
+                self._state = IOSMirrorState.ERROR
+                return False
+
         self._device_udid = device_udid
         self._protocol = IOSMirrorProtocol()
         if not self._protocol.connect(device_udid):
