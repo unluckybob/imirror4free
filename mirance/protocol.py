@@ -34,7 +34,7 @@ class PacketType(IntEnum):
     AFMT = 0x61666D74  # 'afmt' → 74 6D 66 61 (tmfa on wire)
     CVRP = 0x63767270  # 'cvrp' → 70 72 76 63 (prvc on wire)
     FEED = 0x64656566  # 'feed' → 66 65 65 64 (feed on wire) - Video frame
-    EAT  = 0x74616500  # 'eat\\x00' → 00 61 65 74 (eat on wire) - Audio data
+    EAT  = 0x65617421  # 'eat\\x00' → 00 61 65 74 (eat on wire) - Audio data
     NEED = 0x6465656E  # 'need' → 6E 65 65 64 (neee on wire) - Flow control
     PING = 0x70696E67  # 'ping' → 70 6E 69 67 (gnip on wire)
     CWPA = 0x70617763  # 'cwpa' → 63 77 70 61 (cwap on wire)
