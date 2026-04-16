@@ -590,193 +590,47 @@ class MainWindow(QMainWindow):
         return content
     
     def _build_settings_panel(self) -> QWidget:
-        """Build right settings panel - collapsible."""
+        """Build right settings panel - optimized for maximum quality.
+
+        All settings are hardcoded to maximum quality/lowest latency.
+        The app automatically uses the iPhone's native resolution.
+        """
         panel = QWidget()
         panel.setFixedWidth(280)
         panel.setStyleSheet("background-color: #0A0A0A;")
-        
+
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-        
-        # Header
-        header = QLabel("Settings")
+
+        # Header - Optimized for maximum quality
+        header = QLabel("📱 Optimal Settings")
         header.setStyleSheet("""
             font-size: 14px;
             font-weight: 600;
-            color: #FFFFFF;
+            color: #00FF00;
         """)
         layout.addWidget(header)
-        
-        # Resolution
-        res_group = QGroupBox("Resolution")
-        res_group.setStyleSheet("""
-            QGroupBox {
-                color: #A0A0A0;
-                border: 1px solid #1C1C1E;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px;
-            }
+
+        # Auto Mode Info - Shows that app auto-detects optimal settings
+        info_text = QLabel(
+            "Maximum quality enabled:\n"
+            "• Resolution: Auto (iPhone native)\n"
+            "• FPS: 60 (highest available)\n"
+            "• Quality: Lossless\n"
+            "• Latency: Minimal (40ms)\n"
+            "• Audio: Enabled"
+        )
+        info_text.setStyleSheet("""
+            color: #A0A0A0;
+            font-size: 11px;
+            line-height: 1.6;
         """)
-        res_layout = QVBoxLayout(res_group)
-        
-        self._res_combo = QComboBox()
-        self._res_combo.addItems(["1920x1080", "1280x720", "1080x1920", "720x1280"])
-        # Get current resolution from config (with fallback to 1920x1080)
-        current_res = "1920x1080"
-        if hasattr(config, 'capture_width') and hasattr(config, 'capture_height'):
-            current_res = f"{config.capture_width}x{config.capture_height}"
-        self._res_combo.setCurrentText(current_res)
-        self._res_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #1C1C1E;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-            }
-        """)
-        res_layout.addWidget(self._res_combo)
-        layout.addWidget(res_group)
-        
-        # Quality
-        quality_group = QGroupBox("Quality")
-        quality_group.setStyleSheet("""
-            QGroupBox {
-                color: #A0A0A0;
-                border: 1px solid #1C1C1E;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px;
-            }
-        """)
-        quality_layout = QVBoxLayout(quality_group)
-        
-        self._quality_combo = QComboBox()
-        self._quality_combo.addItems(["High", "Medium", "Low"])
-        current_quality = getattr(config, 'quality', 'High')
-        self._quality_combo.setCurrentText(current_quality)
-        self._quality_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #1C1C1E;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-            }
-        """)
-        quality_layout.addWidget(self._quality_combo)
-        layout.addWidget(quality_group)
-        
-        # FPS
-        fps_group = QGroupBox("Max FPS")
-        fps_group.setStyleSheet("""
-            QGroupBox {
-                color: #A0A0A0;
-                border: 1px solid #1C1C1E;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px;
-            }
-        """)
-        fps_layout = QVBoxLayout(fps_group)
-        
-        self._fps_spin = QSpinBox()
-        self._fps_spin.setRange(15, 60)
-        current_fps = getattr(config, 'max_fps', 30)
-        self._fps_spin.setValue(current_fps)
-        self._fps_spin.setStyleSheet("""
-            QSpinBox {
-                background-color: #1C1C1E;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-            }
-        """)
-        fps_layout.addWidget(self._fps_spin)
-        layout.addWidget(fps_group)
-        
-        # Audio
-        audio_group = QGroupBox("Audio")
-        audio_group.setStyleSheet("""
-            QGroupBox {
-                color: #A0A0A0;
-                border: 1px solid #1C1C1E;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px;
-            }
-        """)
-        audio_layout = QVBoxLayout(audio_group)
-        
-        self._audio_enabled = QCheckBox("Enable Audio")
-        self._audio_enabled.setChecked(config.audio_enabled)
-        self._audio_enabled.setStyleSheet("color: #FFFFFF;")
-        audio_layout.addWidget(self._audio_enabled)
-        
-        # Volume slider
-        volume_layout = QHBoxLayout()
-        volume_layout.addWidget(QLabel("Volume:"))
-        self._volume_slider = QSlider(Qt.Orientation.Horizontal)
-        self._volume_slider.setRange(0, 100)
-        self._volume_slider.setValue(int(config.audio_volume * 100))
-        self._volume_slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                background-color: #1C1C1E;
-                height: 4px;
-            }
-            QSlider::handle:horizontal {
-                background-color: #B5342B;
-                width: 14px;
-                margin: -5px 0;
-            }
-        """)
-        volume_layout.addWidget(self._volume_slider)
-        audio_layout.addLayout(volume_layout)
-        
-        layout.addWidget(audio_group)
-        
+        layout.addWidget(info_text)
+
+        # Spacer to push any buttons to bottom
         layout.addStretch()
-        
-        # Apply button
-        btn_apply = QPushButton("Apply")
-        btn_apply.setStyleSheet("""
-            QPushButton {
-                background-color: #8B0000;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
-                padding: 10px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background-color: #B5342B; }
-        """)
-        btn_apply.clicked.connect(self._apply_settings)
-        layout.addWidget(btn_apply)
-        
+
         return panel
 
     def _refresh_devices(self) -> None:
@@ -792,21 +646,9 @@ class MainWindow(QMainWindow):
             self.showMaximized()
     
     def _apply_settings(self) -> None:
-        """Apply settings from settings panel."""
-        # Update config from UI
-        res = self._res_combo.currentText()
-        if res:
-            # Use setattr to safely add attributes if they don't exist
-            width, height = map(int, res.split('x'))
-            setattr(config, 'capture_width', width)
-            setattr(config, 'capture_height', height)
-        
-        setattr(config, 'quality', self._quality_combo.currentText())
-        setattr(config, 'max_fps', self._fps_spin.value())
-        config.audio_enabled = self._audio_enabled.isChecked()
-        config.audio_volume = self._volume_slider.value() / 100.0
-        
-        self.status_update.emit("Settings applied")
+        """Apply settings - no longer needed, settings are automatic."""
+        # Settings are now auto-configured for maximum quality
+        self.status_update.emit("✓ Using optimal settings (auto)")
 
     def _build_waiting_page(self) -> QWidget:
         """Build the waiting/connection screen."""
