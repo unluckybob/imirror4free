@@ -62,9 +62,10 @@ class Magic:
 # ─── Packet Builders ──────────────────────────────────────────────
 
 def build_ping() -> bytes:
-    # v2.4 PCAP analysis: payload is 8 zeros + 0x01000000 (not reversed)
-    # So: struct <I4sII gives little-endian: len(16) + magic('gnip') + 0 + 1
-    return struct.pack("<I4sII", 16, Magic.PING, 0, 1)
+    # v2.4 PCAP analysis: AnyMiro sends length=0 (not 16!)
+    # The length field seems to be ignored - what matters is the 16-byte payload
+    # AnyMiro format: 00 00 00 00 + 'gnip' + 00 00 00 00 + 01 00 00 00
+    return struct.pack("<I4sII", 0, Magic.PING, 0, 1)
 
 def build_rply(correlation_id: bytes, value: int) -> bytes:
     """Standard 28-byte RPLY (CWPA/CVRP/CLOK/SKEW/OG/STOP)"""
