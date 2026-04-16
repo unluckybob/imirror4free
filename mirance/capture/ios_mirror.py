@@ -233,8 +233,8 @@ class IOSMirrorCapture(CaptureBackend):
         logger.info("=" * 50)
         
         # Step 1: Wait for driver to be ready - THIS IS WHAT ANYMIRO DOES
-        from mirance.usb import driver_installer
-        device = driver_installer.wait_for_device_ready(timeout=10.0)
+        from mirance.usb import driver_setup_api
+        device = driver_setup_api.wait_for_device_ready(timeout=10.0)
         if not device:
             logger.warning("No iPhone detected - may need driver installation")
             # Continue anyway - might work with existing driver
@@ -268,25 +268,31 @@ class IOSMirrorCapture(CaptureBackend):
                 self._state = IOSMirrorState.CONNECTED
                 self._stats = {"frames_received": 0, "bytes_received": 0, "start_time": time.time()}
                 logger.info(f"Connected to {device_udid}")
+                
+                # Step 4: Start protocol streaming (AnyMiro-style)
+                self._protocol = IOSMirrorProtocol()
+                if not self._protocol.connect(device_udid):
+                    self._protocol = None
+                    self._usbmux.disconnect()
+                    self._state = IOSMirrorState.ERROR
+                    return False
+                if not self._protocol.start_streaming():
+                    self._protocol.disconnect()
+                    self._protocol = None
+                    self._usbmux.disconnect()
+                    self._state = IOSMirrorState.ERROR
+                    return False
+                    
+                # Step 5: Start frame processing thread
+                self._stop_event.clear()
+                self._thread = threading.Thread(target=self._process_frames, daemon=True)
+                self._thread.start()
+                    
                 return True
             except Exception as e:
                 logger.error(f"IOSMirror: connection failed: {e}")
                 self._state = IOSMirrorState.ERROR
                 return False
-
-        self._device_udid = device_udid
-        self._protocol = IOSMirrorProtocol()
-        if not self._protocol.connect(device_udid):
-            self._protocol = None
-            return False
-        if not self._protocol.start_streaming():
-            self._protocol.disconnect()
-            self._protocol = None
-            return False
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._process_frames, daemon=True)
-        self._thread.start()
-        return True
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -297,6 +303,9 @@ class IOSMirrorCapture(CaptureBackend):
             self._protocol.stop_streaming()
             self._protocol.disconnect()
             self._protocol = None
+        if self._usbmux:
+            self._usbmux.disconnect()
+            self._usbmux = None
 
     def _process_frames(self) -> None:
         while not self._stop_event.is_set():
