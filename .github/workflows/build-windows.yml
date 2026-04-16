@@ -72,9 +72,12 @@ jobs:
       - name: Create debug launcher
         shell: pwsh
         run: |
-          # Debug launcher needs proper path setup for mirance package
-          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); from mirance.main import main; main()'`"`r`npause"
-          [System.IO.File]::WriteAllText("dist\MIRANCE\debug.bat", $bat)
+          # Debug launcher runs with verbose logging
+          $batContent = '@echo off' + "`r`n"
+          $batContent += 'cd /d "%~dp0"' + "`r`n"
+          $batContent += 'python\python.exe -m mirance --verbose' + "`r`n"
+          $batContent += 'pause'
+          [System.IO.File]::WriteAllText("dist\MIRANCE\debug.bat", $batContent)
 
       - name: Verify build
         shell: pwsh
