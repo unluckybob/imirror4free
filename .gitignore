@@ -1,24 +1,2 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-dist/
-build/temp/
-*.spec
-venv/
-.venv/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# PyInstaller
-*.manifest
-*.exe
+*.zip
+anymiro_analysis/
