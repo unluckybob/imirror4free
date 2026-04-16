@@ -232,6 +232,21 @@ class IOSMirrorCapture(CaptureBackend):
         logger.info("Starting iOS Mirror (AnyMiro-style)")
         logger.info("=" * 50)
         
+        # Step 0: Check trust state - like AnyMiro's isTrustOpened/needTrust
+        from mirance.usb import trust_checker
+        trust_state = trust_checker.check_trust_state(device_udid)
+        if trust_state == trust_checker.TrustState.UNTRUSTED:
+            logger.warning("Device not trusted - user must tap Trust on iPhone")
+            # Wait for trust (up to 60 seconds)
+            if not trust_checker.wait_for_trust(device_udid, timeout=60.0):
+                logger.error("Trust timeout - device not trusted")
+                return False
+        elif trust_state == trust_checker.TrustState.PROMPT_PENDING:
+            logger.info("Waiting for user to tap Trust on iPhone...")
+            if not trust_checker.wait_for_trust(device_udid, timeout=60.0):
+                logger.error("User did not tap Trust")
+                return False
+                
         # Step 1: Wait for driver to be ready - THIS IS WHAT ANYMIRO DOES
         from mirance.usb import driver_setup_api
         device = driver_setup_api.wait_for_device_ready(timeout=10.0)
