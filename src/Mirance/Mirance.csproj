@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <AssemblyName>Mirance</AssemblyName>
+    <RootNamespace>Mirance</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>Mirance Team</Authors>
+    <Company>Mirance</Company>
+    <Product>Mirance</Product>
+    <Description>iPhone Screen Mirroring for Windows - Built exactly like AnyMiro</Description>
+    <Copyright>2024</Copyright>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- DirectX 11 - Same as AnyMiro's Core.MD.Render.dll -->
+    <PackageReference Include="SharpDX" Version="4.2.0" />
+    <PackageReference Include="SharpDX.Direct3D9" Version="4.2.0" />
+    <PackageReference Include="SharpDX.DXGI" Version="4.2.0" />
+    <PackageReference Include="SharpDX.Direct2D1" Version="4.2.0" />
+    <PackageReference Include="SharpDX.XAudio2" Version="4.2.0" />
+    
+    <!-- USB - Same as AnyMiro's Core.Connection.dll -->
+    <PackageReference Include="LibUsbDotNet" Version="1.9.0" />
+    
+    <!-- Audio - For audio playback (like Core.AudioDevices.dll) -->
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    
+    <!-- Video/Audio encoding (FFmpeg) - Same as Core.GFFmpegLib.dll -->
+    <PackageReference Include="FFMpegCore" Version="5.1.0" />
+    
+    <!-- JSON - Same as AnyMiro's Core.Json.dll -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    
+    <!-- Logging - Same as Core.Tracing.dll -->
+    <PackageReference Include="Serilog" Version="3.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
