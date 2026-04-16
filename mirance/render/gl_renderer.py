@@ -14,6 +14,7 @@ Designed for minimal latency:
 import logging
 import ctypes
 import time
+import platform
 from typing import Optional
 
 import numpy as np
@@ -69,6 +70,19 @@ class GLRenderer(QOpenGLWidget):
     """
 
     def __init__(self, parent=None):
+        # On Windows, use DirectX (ANGLE) backend for performance matching AnyMiro
+        # AnyMiro uses DirectX 11 - we can get equivalent performance via Qt's ANGLE
+        if platform.system() == "Windows":
+            # Try to use DirectX/ANGLE backend on Windows
+            # This provides DirectX-level performance like AnyMiro
+            try:
+                import os
+                # Request ANGLE (DirectX) backend on Windows
+                os.environ.setdefault("QT_OPENGL", "angle")
+                os.environ.setdefault("QT_ANGLE_PLATFORM", "d3d11")
+            except Exception:
+                pass
+        
         # Set up OpenGL format before creating widget
         fmt = QSurfaceFormat()
         fmt.setVersion(3, 3)

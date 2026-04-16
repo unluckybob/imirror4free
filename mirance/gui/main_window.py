@@ -44,19 +44,6 @@ try:
 except ImportError:
     OPENGL_AVAILABLE = False
 
-# Try to import DirectX renderer (Windows only)
-# Note: DirectXRenderer is NOT a QWidget, so we can't add it to Qt layouts
-# We keep it available for potential future use or direct rendering
-DIRECTX_AVAILABLE = False
-DirectXRenderer = None
-try:
-    if platform.system() == "Windows":
-        from mirance.render.directx_renderer import DirectXRenderer
-        # Only mark available if we can actually use it (it's a class, not a QWidget)
-        DIRECTX_AVAILABLE = True
-except ImportError:
-    DIRECTX_AVAILABLE = False
-
 logger = logging.getLogger(__name__)
 
 
