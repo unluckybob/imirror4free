@@ -20,7 +20,7 @@ MIRANCE mirrors your iPhone screen to your Windows PC over USB — for free. It 
 | ⚡ **Low latency** | Direct HEVC stream over USB, GPU-accelerated decode |
 | 🔊 **Audio passthrough** | iPhone audio plays through your PC speakers |
 | 🎬 **Screen recording** | Record to MP4/MKV with zero quality loss (direct mux) |
-| 📸 **Screenshots** | PNG/JPEG capture with one click or Ctrl+S |
+| 📸 **Screenshots** | Ctrl+S to save current frame as PNG/JPEG |
 | 🔌 **Plug and play** | One-time driver install, then just plug in and go |
 | 🎨 **Dark Windows 11 UI** | Clean, minimal, modern dark theme |
 | ⚙ **Settings panel** | Configure decoder, audio, recording, and UI options |
@@ -49,14 +49,13 @@ iPhone (USB)
     └─── Your PC Screen 🖥️
 ```
 
-### Capture Backends
+### Capture Backend
 
 | Backend | FPS | Method | When Used |
 |---------|-----|--------|-----------|
 | **Valeria Stream** | 30-60 | HEVC over USB | Default (after driver install) |
-| **Screenshot** | ~10-15 | PNG screenshots via DVT | Fallback (no driver needed) |
 
-The app auto-selects the best available backend.
+The app uses the Valeria stream backend. Screenshots save the current video frame.
 
 ## 📋 Prerequisites
 
@@ -121,17 +120,13 @@ Double-click `MIRANCE.exe` — no installation required.
 # Launch the GUI
 python -m mirance
 
-# Force a specific capture backend
-python -m mirance --backend valeria
-python -m mirance --backend screenshot
-
 # Driver management
-python -m mirance --install-driver     # Install libusb-win32 mirror driver
-python -m mirance --uninstall-driver   # Restore Apple's original driver
-python -m mirance --check-driver       # Check driver status
+python -m mirance --install-driver   # Install libusb-win32 mirror driver
+python -m mirance --uninstall-driver # Restore Apple's original driver
+python -m mirance --check-driver     # Check driver status
 
 # Diagnostics
-python -m mirance --diag               # Full USB diagnostic
+python -m mirance --diag            # Full USB diagnostic
 
 # Display options
 python -m mirance --fps                # Show FPS overlay
@@ -144,31 +139,34 @@ python -m mirance --verbose            # Debug logging
 
 ```
 mirance/
-├── mirance/
-│   ├── __init__.py               # Version, metadata
-│   ├── main.py                   # Entry point + CLI
-│   ├── config.py                 # All settings (persistent)
-│   ├── usb/
-│   │   ├── driver_installer.py   # libusb-win32 driver auto-installer
-│   │   ├── driver_check.py       # Driver diagnostics
-│   │   ├── device_manager.py     # iPhone detection (usbmuxd + pyusb)
-│   │   ├── endpoint.py           # USB endpoint I/O + QT mode switch
-│   │   ├── valeria.py            # Valeria protocol state machine
-│   │   └── packets.py            # Protocol packet codec (AVCC → Annex B)
-│   ├── capture/
-│   │   ├── base.py               # Abstract capture backend
-│   │   ├── stream.py             # Valeria HEVC stream capture
-│   │   ├── screenshot.py         # Screenshot capture (fallback)
-│   │   └── recording.py          # MP4/MKV recording + screenshots
-│   ├── decode/
-│   │   ├── video.py              # HW-accelerated HEVC decoder
-│   │   └── audio.py              # Audio playback with ring buffer
-│   └── gui/
-│       ├── main_window.py        # Main window + settings dialog
-│       ├── overlay.py            # FPS/status overlay
-│       └── styles.py             # Windows 11 dark theme
+├── __init__.py              # Package init
+├── __main__.py              # CLI entry (python -m mirance)
+├── main.py                  # GUI entry
+├── config.py                # All settings
+├── protocol.py              # v2.4 Handshake + magic bytes
+├── capture/
+│   ├── base.py              # CaptureBackend abstract class
+│   ├── stream.py             # Valeria stream capture
+│   └── recording.py         # Recording + screenshot
+├── decode/
+│   ├── video.py             # HEVC/AVC decoder (D3D11VA/DXVA2)
+│   └── audio.py              # Audio (48kHz LPCM)
+├── render/
+│   ├── gl_renderer.py      # OpenGL rendering
+│   └── shaders.py           # GLSL shaders
+├── usb/
+│   ├── device.py            # QuickTime mode activation
+│   ├── device_manager.py   # iPhone detection
+│   ├── packets.py          # Packet build/parse
+│   ├── stream.py           # USB stream I/O
+│   ├── valeria.py         # Protocol state machine
+│   └── driver_installer.py # Driver installation
+├── gui/
+│   ├── main_window.py      # PyQt6 main window
+│   ├── overlay.py         # FPS overlay
+│   └── styles.py          # Dark theme
 ├── build/
-│   └── build_exe.py              # PyInstaller packaging
+│   └── build_exe.py       # PyInstaller EXE builder
 ├── requirements.txt
 └── README.md
 ```
@@ -214,7 +212,7 @@ Recording works by muxing the raw HEVC stream directly into an MP4/MKV container
 | `PyOpenGL` | GPU-accelerated rendering |
 | `sounddevice` | Low-latency audio playback |
 | `numpy` | Frame buffer operations |
-| `Pillow` | Image processing (screenshots) |
+| `Pillow` | Image processing |
 
 ## 📜 License
 
