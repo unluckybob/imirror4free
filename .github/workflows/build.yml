@@ -14,13 +14,22 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       
-      - run: |
+      - name: Build C# Project
+        run: |
           cd src/Mirance
           dotnet restore
           dotnet build -c Release
-          dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o ./publish
+          dotnet publish -c Release -r win-x64 -o ./publish
       
-      - uses: actions/upload-artifact@v4
+      - name: Create debug.bat
+        run: |
+          cd src/Mirance/publish
+          echo @echo off > debug.bat
+          echo Mirance.exe > debug.bat
+          echo pause >> debug.bat
+      
+      - name: Upload all files
+        uses: actions/upload-artifact@v4
         with:
           name: Mirance-win-x64
-          path: src/Mirance/publish/*.exe
+          path: src/Mirance/publish/*
