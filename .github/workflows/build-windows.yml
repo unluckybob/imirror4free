@@ -52,12 +52,11 @@ jobs:
       - name: Copy source code
         shell: pwsh
         run: |
-          # Core Python modules (root level)
-          Copy-Item config.py dist\MIRANCE\config.py
-          Copy-Item main.py dist\MIRANCE\main.py
+          # Main entry point
           Copy-Item run.py dist\MIRANCE\run.py
           Copy-Item setup.py dist\MIRANCE\setup.py
-          # mirance package
+          Copy-Item requirements.txt dist\MIRANCE\requirements.txt
+          # mirance package (contains config, main, protocol, etc.)
           Copy-Item -Recurse mirance dist\MIRANCE\mirance
 
       - name: Copy assets
@@ -73,8 +72,8 @@ jobs:
       - name: Create debug launcher
         shell: pwsh
         run: |
-          # Debug launcher needs proper path setup
-          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); exec('from mirance.main import main; main()')`"`r`npause"
+          # Debug launcher needs proper path setup for mirance package
+          $bat = "@echo off`r`ncd /d `"%~dp0`"`r`npython\python.exe -c `"import sys; sys.path.insert(0, '.'); from mirance.main import main; main()'`"`r`npause"
           [System.IO.File]::WriteAllText("dist\MIRANCE\debug.bat", $bat)
 
       - name: Verify build
