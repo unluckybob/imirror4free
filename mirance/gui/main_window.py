@@ -45,10 +45,14 @@ except ImportError:
     OPENGL_AVAILABLE = False
 
 # Try to import DirectX renderer (Windows only)
+# Note: DirectXRenderer is NOT a QWidget, so we can't add it to Qt layouts
+# We keep it available for potential future use or direct rendering
 DIRECTX_AVAILABLE = False
+DirectXRenderer = None
 try:
     if platform.system() == "Windows":
         from mirance.render.directx_renderer import DirectXRenderer
+        # Only mark available if we can actually use it (it's a class, not a QWidget)
         DIRECTX_AVAILABLE = True
 except ImportError:
     DIRECTX_AVAILABLE = False
@@ -466,18 +470,10 @@ class MainWindow(QMainWindow):
         video_layout = QVBoxLayout(self._video_container)
         video_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Use renderer: DirectX on Windows (preferred), OpenGL fallback
-        # This matches AnyMiro's Core.MD.Render.dll on Windows
-        self._dx_renderer = None  # DirectX renderer instance
-        if DIRECTX_AVAILABLE and platform.system() == "Windows":
-            # Use DirectX renderer (exact replica of AnyMiro)
-            self._dx_renderer = DirectXRenderer()
-            self._dx_renderer.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            video_layout.addWidget(self._dx_renderer)
-            logger.info("Using DirectX 11 renderer (AnyMiro-style)")
-        elif OPENGL_AVAILABLE:
-            # Fallback to OpenGL
+        # Use OpenGL renderer (works on all platforms including Windows)
+        # Note: DirectX renderer is not a QWidget, so we can't use it in Qt layouts
+        # For now, use OpenGL which works well on Windows too
+        if OPENGL_AVAILABLE:
             self._gl_renderer = GLRenderer()
             self._gl_renderer.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -924,10 +920,7 @@ class MainWindow(QMainWindow):
         try:
             h, w, ch = frame.shape
 
-            if self._dx_renderer:
-                # DirectX 11 path (AnyMiro-style on Windows)
-                self._dx_renderer.set_frame(frame, w, h)
-            elif self._gl_renderer:
+            if self._gl_renderer:
                 # OpenGL path: zero-copy texture upload, VSync, proper aspect ratio
                 self._gl_renderer.set_frame(frame, w, h)
             elif self._frame_label:
