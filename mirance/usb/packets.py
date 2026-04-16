@@ -6,8 +6,8 @@ import struct
 from enum import Enum
 from typing import Optional
 
-# Import from root config.py (v2.4 latency values)
-from config import (
+# Import from mirance config.py (v2.4 latency values)
+from mirance.config import (
     DEFAULT_DISPLAY_WIDTH, DEFAULT_DISPLAY_HEIGHT,
     AUDIO_BUFFER_AHEAD_INTERVAL, AUDIO_SCREEN_LATENCY
 )

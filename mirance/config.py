@@ -157,6 +157,11 @@ class _Config:
         except Exception as e:
             logger.warning("Failed to load settings: %s", e)
 
+# ─── Module-level constants (for packets.py compatibility) ──────────────
+DEFAULT_DISPLAY_WIDTH = 2560
+DEFAULT_DISPLAY_HEIGHT = 1440
+AUDIO_BUFFER_AHEAD_INTERVAL = 73  # ms
+AUDIO_SCREEN_LATENCY = 40  # ms
 
 # Global config instance
 config = _Config()
