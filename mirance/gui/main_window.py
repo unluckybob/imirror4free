@@ -213,22 +213,8 @@ class MainWindow(QMainWindow):
         self._action_on_top.triggered.connect(self._toggle_always_on_top)
         view_menu.addAction(self._action_on_top)
 
-        # Tools menu
+        # Tools menu - Remove manual driver options (now automatic)
         tools_menu = menubar.addMenu("&Tools")
-
-        action_install_driver = QAction("🔧 Install Mirror Driver", self)
-        action_install_driver.triggered.connect(self._install_driver)
-        tools_menu.addAction(action_install_driver)
-
-        action_restore_driver = QAction("↩ Restore Original Driver", self)
-        action_restore_driver.triggered.connect(self._restore_driver)
-        tools_menu.addAction(action_restore_driver)
-
-        tools_menu.addSeparator()
-
-        action_check_driver = QAction("🔍 Check Driver Status", self)
-        action_check_driver.triggered.connect(self._check_driver_status)
-        tools_menu.addAction(action_check_driver)
 
         action_diag = QAction("🩺 Run USB Diagnostic", self)
         action_diag.triggered.connect(self._run_diagnostic)
@@ -385,26 +371,10 @@ class MainWindow(QMainWindow):
             padding: 20px;
         """)
         device_list_layout.addWidget(self._no_devices_label)
-        
-        # Bottom section - Driver install
+
+        # Bottom - always-on-top toggle
         layout.addStretch()
-        
-        btn_install_driver = QPushButton("🔧 Install Driver")
-        btn_install_driver.setStyleSheet("""
-            QPushButton {
-                background-color: #8B0000;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
-                padding: 10px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background-color: #B5342B; }
-        """)
-        btn_install_driver.clicked.connect(self._install_driver)
-        layout.addWidget(btn_install_driver)
-        
+
         return sidebar
     
     def _build_content_area(self) -> QWidget:
@@ -705,39 +675,13 @@ class MainWindow(QMainWindow):
         instructions = QLabel(
             "1.  Connect your iPhone via USB cable\n"
             "2.  Tap 'Trust' on your iPhone if prompted\n"
-            "3.  Make sure iTunes is installed"
+            "3.  App will auto-install driver if needed"
         )
         instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instructions.setStyleSheet("font-size: 12px; color: #636366;")
         layout.addWidget(instructions)
 
         layout.addSpacing(16)
-
-        # Driver install button (shown when needed)
-        self._btn_install_driver = QPushButton("🔧 Install Mirror Driver")
-        self._btn_install_driver.setObjectName("primaryButton")
-        self._btn_install_driver.setStyleSheet("""
-            QPushButton {
-                background-color: #B5342B;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                padding: 12px 28px;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background-color: #CF3F35; }
-            QPushButton:pressed { background-color: #8E2A23; }
-        """)
-        self._btn_install_driver.clicked.connect(self._install_driver)
-        self._btn_install_driver.setVisible(False)
-        layout.addWidget(self._btn_install_driver, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Driver status label
-        self._driver_status_label = QLabel("")
-        self._driver_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._driver_status_label.setStyleSheet("font-size: 11px; color: #636366;")
-        layout.addWidget(self._driver_status_label)
 
         return page
 
@@ -852,18 +796,10 @@ class MainWindow(QMainWindow):
                 error_type = capture.error_type
                 error_msg = capture._init_error or "Valeria stream failed to start"
 
-                # Handle driver-related failures with targeted UI prompts
-                if error_type == "driver_needed":
+                # Handle driver-related failures - auto-install if needed
+                if error_type in ("driver_needed", "claim_failed", "driver_replug"):
                     self._is_connected = False
-                    QTimer.singleShot(200, lambda: self._prompt_driver_install_auto("driver_needed"))
-                    return
-                elif error_type == "claim_failed":
-                    self._is_connected = False
-                    QTimer.singleShot(200, lambda: self._prompt_driver_install_auto("claim_failed"))
-                    return
-                elif error_type == "driver_replug":
-                    self._is_connected = False
-                    QTimer.singleShot(200, self._prompt_replug)
+                    QTimer.singleShot(200, self._auto_install_driver_on_error)
                     return
 
                 raise RuntimeError(error_msg)
@@ -1085,79 +1021,38 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", str(e))
 
     def _update_driver_ui_from_diagnostics(self) -> None:
-        """Show driver install button — only when a phone is connected AND driver is missing.
-
-        The startup diagnostics run before the phone is connected so their
-        libusb_accessible result is stale.  Guard: only show the button if a
-        device is currently present; otherwise the Valeria stream error path
-        (_prompt_driver_install_auto) will show it at the right moment.
-        """
-        if self._driver_installed_this_session:
-            return  # Driver was installed this session — don't re-show from stale cache
-        if not self._device_manager:
-            return
-        # Don't show the button until the phone is actually connected
-        if not self._device_manager.first_device:
-            return
-        diag = self._device_manager.diagnostics
-        if not diag:
-            return
-        driver_status = diag.get("driver_status")
-        if driver_status and not driver_status.libusb_accessible:
-            self._btn_install_driver.setVisible(True)
-            self._driver_status_label.setText(
-                "Mirror driver required for USB streaming"
-            )
+        """Update UI from diagnostics - no longer needed as driver install is automatic."""
 
     def _on_driver_status_checked(self, status) -> None:
         """Called on main thread when a background driver status check completes."""
-        if not status.libusb_accessible:
-            self._btn_install_driver.setVisible(True)
-            self._driver_status_label.setText("Mirror driver required for USB streaming")
-        else:
-            self._btn_install_driver.setVisible(False)
-            self._driver_status_label.setText("")
+        # Driver check complete - no UI changes needed as driver install is automatic
 
-    def _prompt_driver_install_auto(self, error_type: str) -> None:
-        """Auto-prompt driver installation when Valeria stream fails due to driver issues."""
-        self._btn_install_driver.setVisible(True)
+    def _auto_install_driver_on_error(self) -> None:
+        """Auto-install driver when stream fails due to driver issues.
 
-        if error_type == "claim_failed":
-            title = "Mirror Driver Issue"
-            msg = (
-                "MIRANCE couldn't claim the iPhone's AV streaming interface.\n\n"
-                "This usually means the libusb-win32 mirror driver needs to be reinstalled.\n\n"
-                "Would you like to reinstall it now? (requires admin approval)"
-            )
-        else:
-            title = "Mirror Driver Required"
-            msg = (
-                "MIRANCE needs a USB mirror driver to stream from your iPhone.\n\n"
-                "\u2022 One-time setup (~10 seconds)\n"
-                "\u2022 Requires administrator approval (UAC prompt)\n"
-                "\u2022 You'll need to replug your iPhone after installation\n\n"
-                "Install now?"
-            )
+        Called automatically when the stream fails with driver-related errors.
+        Installs silently without user prompts.
+        """
+        try:
+            from mirance.usb.driver_installer import full_driver_setup
+            result = full_driver_setup()
 
-        reply = QMessageBox.question(
-            self, title, msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._install_driver()
-        else:
-            self._waiting_status.setText("Mirror driver needed — click \u2018Install Mirror Driver\u2019 below")
-            self._driver_status_label.setText("Without the driver, USB streaming is unavailable")
-
-    def _prompt_replug(self) -> None:
-        """Show replug instructions when driver is installed but iPhone needs reconnection."""
-        self._waiting_status.setText("Please unplug and replug your iPhone")
-        QMessageBox.information(
-            self, "Replug iPhone",
-            "The mirror driver is installed, but your iPhone needs to be\n"
-            "replugged to activate it.\n\n"
-            "Please unplug and replug your USB cable."
-        )
+            if result.success:
+                self._waiting_status.setText("Driver installed — replug iPhone")
+                self._driver_installed_this_session = True
+                self._consecutive_failures = 0
+                self._last_capture_failure = 0.0
+                # Show replug message
+                QMessageBox.information(
+                    self, "Driver Installed",
+                    "Mirror driver automatically installed.\n\n"
+                    "Please unplug and replug your iPhone to activate."
+                )
+            else:
+                QMessageBox.warning(self, "Driver Installation Failed",
+                               f"[FAIL] {result.message}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Auto driver install failed: {e}")
 
     def _check_driver_status(self) -> None:
         """Check and display driver status."""
