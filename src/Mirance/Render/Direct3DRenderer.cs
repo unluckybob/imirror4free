@@ -208,7 +208,7 @@ public class ImageRenderer
             PixelFormats.Bgra32, null);
     }
     
-    public void RenderFrame(byte[] frameData, Image targetImage)
+    public void RenderFrame(byte[] frameData)
     {
         if (_bitmap == null) return;
         

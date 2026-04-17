@@ -2,8 +2,6 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Using .NET 8 for GitHub Actions build compatibility -->
-    <!-- Note: AnyMiro uses .NET Framework 4.6.1 but we use .NET 8 for CI -->
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
@@ -13,6 +11,7 @@
     <Version>1.0.0</Version>
     <Description>iPhone Screen Mirroring - Exact replica of AnyMiro</Description>
     <Copyright>2024</Copyright>
+    <Nullable>disable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,8 +22,8 @@
     <PackageReference Include="SharpDX.Direct2D1" Version="4.2.0" />
     <PackageReference Include="SharpDX.XAudio2" Version="4.2.0" />
     
-    <!-- USB - Same as AnyMiro -->
-    <PackageReference Include="LibUsbDotNet" Version="1.9.0" />
+    <!-- USB - LibUsbDotNet 2.x -->
+    <PackageReference Include="LibUsbDotNet" Version="2.2.8" />
     
     <!-- Audio - Same as AnyMiro -->
     <PackageReference Include="NAudio" Version="2.2.1" />
