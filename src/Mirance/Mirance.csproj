@@ -11,7 +11,6 @@
     <Version>1.0.0</Version>
     <Description>iPhone Screen Mirroring - Exact replica of AnyMiro</Description>
     <Copyright>2024</Copyright>
-    <Nullable>disable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
